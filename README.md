@@ -1,32 +1,20 @@
 # OpenOCD Qt GUI
 
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PyQt5](https://img.shields.io/badge/PyQt5-5.12%2B-41CD52?logo=qt&logoColor=white)](https://pypi.org/project/PyQt5/)
+[![OpenOCD](https://img.shields.io/badge/OpenOCD-0.11%2B-FF6600?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PC9zdmc+&logoColor=white)](https://openocd.org/)
+[![QDarkStyle](https://img.shields.io/badge/qdarkstyle-optional-555555)](https://github.com/ColinDuquesnoy/QDarkStyleSheet)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/zissis-pap/openocd-qt-gui)
+[![STM32](https://img.shields.io/badge/target-STM32-03234B?logo=stmicroelectronics&logoColor=white)](https://www.st.com/en/microcontrollers-microprocessors/stm32-32-bit-arm-cortex-mcus.html)
+
 A **PyQt5 graphical frontend** for the [OpenOCD](https://openocd.org/) on-chip debugger.
 It lets you start/stop the OpenOCD server, flash firmware, inspect memory, and run
 TCL scripts — all without touching a terminal.
 
 > OpenOCD must be installed on your system separately. This tool is a GUI wrapper only.
 
----
-
-## Screenshots
-
-### Application on first launch
-![Application launch](assets/launch_window.png)
-
-### Selecting a target MCU
-![MCU selection](assets/select_mcu.png)
-
-### Server running and target connected
-![Connected state](assets/connected.png)
-
-### Flashing firmware (Flash Ops tab)
-![Flash operations](assets/app_launch.png)
-
-### Memory Viewer tab
-![Memory viewer](assets/memory_viewer.png)
-
-### Script Console tab
-![Script console](assets/script_window.png)
+![](assets/launch_window.png)
 
 ---
 
@@ -54,12 +42,12 @@ ST-Link, ST-Link v2, ST-Link v2-1, J-Link, CMSIS-DAP, FTDI
 
 ## Requirements
 
-| Dependency | Version |
-|---|---|
-| Python | 3.8 + |
-| PyQt5 | 5.12 + |
-| OpenOCD | 0.11 + (system package) |
-| qdarkstyle *(optional)* | 3.x |
+| Dependency | Version | Link |
+|---|---|---|
+| [Python](https://www.python.org/) | 3.8 + | https://www.python.org/downloads/ |
+| [PyQt5](https://pypi.org/project/PyQt5/) | 5.12 + | https://pypi.org/project/PyQt5/ |
+| [OpenOCD](https://openocd.org/) | 0.11 + (system package) | https://openocd.org/ |
+| [qdarkstyle](https://github.com/ColinDuquesnoy/QDarkStyleSheet) *(optional)* | 3.x | https://github.com/ColinDuquesnoy/QDarkStyleSheet |
 
 ---
 
@@ -124,6 +112,12 @@ pip install PyQt5 qdarkstyle
 ```bash
 python main.py
 ```
+
+![](assets/select_mcu.png)
+![](assets/connected.png)
+![](assets/app_launch.png)
+![](assets/memory_viewer.png)
+![](assets/script_window.png)
 
 ---
 
