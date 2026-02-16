@@ -113,12 +113,6 @@ pip install PyQt5 qdarkstyle
 python main.py
 ```
 
-![](assets/select_mcu.png)
-![](assets/connected.png)
-![](assets/app_launch.png)
-![](assets/memory_viewer.png)
-![](assets/script_window.png)
-
 ---
 
 ## Usage walkthrough
@@ -143,6 +137,8 @@ is passed to the server automatically on start.
 For a board not in the list, type or browse to a custom `.cfg` file in the
 **Custom Config** box.
 
+![](assets/select_mcu.png)
+
 ### Step 3 — Start the server
 
 Click **Start**. The status dot turns green and the PID is shown.
@@ -153,6 +149,8 @@ OpenOCD output appears immediately in the **log panel** at the bottom.
 Click **Connect** to open a telnet session on the configured port.
 The status bar changes from *Disconnected* (red) to *Connected* (green).
 The Flash Ops, Memory Viewer, and Script Console tabs are now active.
+
+![](assets/connected.png)
 
 ---
 
@@ -174,6 +172,8 @@ The Flash Ops, Memory Viewer, and Script Console tabs are now active.
 
 A progress bar tracks multi-step operations. All output is forwarded to the log panel.
 
+![](assets/app_launch.png)
+
 ---
 
 ### Memory Viewer tab
@@ -190,6 +190,8 @@ The table displays:
 
 Enable **Auto-refresh** and set an interval (minimum 500 ms) to continuously poll
 the memory region — useful for watching live register or variable values.
+
+![](assets/memory_viewer.png)
 
 ---
 
@@ -218,6 +220,8 @@ flash erase_address pad 0x08000000 0x20000
 program /path/to/firmware.bin 0x08000000 verify
 reset run
 ```
+
+![](assets/script_window.png)
 
 ---
 
