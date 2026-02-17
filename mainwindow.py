@@ -18,6 +18,7 @@ from widgets.flash_ops import FlashOpsWidget
 from widgets.memory_viewer import MemoryViewerWidget
 from widgets.script_console import ScriptConsoleWidget
 from widgets.log_widget import LogWidget
+from widgets.verify_widget import VerifyWidget
 
 
 class MainWindow(QMainWindow):
@@ -115,6 +116,9 @@ class MainWindow(QMainWindow):
         self._script_console = ScriptConsoleWidget()
         self._tabs.addTab(self._script_console, "Script Console")
 
+        self._verify_widget = VerifyWidget()
+        self._tabs.addTab(self._verify_widget, "Verify")
+
         h_split.addWidget(self._tabs)
         h_split.setStretchFactor(0, 0)
         h_split.setStretchFactor(1, 1)
@@ -178,8 +182,10 @@ class MainWindow(QMainWindow):
 
         # Flash ops log
         self._flash_ops.sig_log.connect(self._log_widget.append_line)
+        self._flash_ops.sig_verify_requested.connect(self._on_verify_requested)
         self._mem_viewer.sig_log.connect(self._log_widget.append_line)
         self._script_console.sig_log.connect(self._log_widget.append_line)
+        self._verify_widget.sig_log.connect(self._log_widget.append_line)
 
     # ------------------------------------------------------------------
     # Slots
@@ -202,6 +208,7 @@ class MainWindow(QMainWindow):
         self._flash_ops.set_connection("localhost", port)
         self._mem_viewer.set_connection("localhost", port)
         self._script_console.set_connection("localhost", port)
+        self._verify_widget.set_connection("localhost", port)
         self.statusBar().showMessage("Connected to OpenOCD")
 
     def _on_client_disconnected(self):
@@ -219,6 +226,10 @@ class MainWindow(QMainWindow):
     def _on_target_changed(self, name: str, cfg: str):
         self._status_mcu_label.setText(f"Target: {name}")
         self._log_widget.append_line(f"[INFO] Target selected: {name} ({cfg})")
+
+    def _on_verify_requested(self, path: str, addr: int):
+        self._tabs.setCurrentWidget(self._verify_widget)
+        self._verify_widget.start_verify(path, addr)
 
     def _open_firmware(self):
         path, _ = QFileDialog.getOpenFileName(

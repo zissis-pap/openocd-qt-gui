@@ -1,5 +1,8 @@
 """Memory viewer widget — hex dump with read/write via OpenOCD."""
 
+import re
+import os
+import tempfile
 import struct
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
@@ -13,6 +16,39 @@ from openocd_client import SyncClient
 from mcu_config import DEFAULT_FLASH_BASE
 
 _COLS_PER_ROW = 16
+
+
+def _parse_mdw(text: str) -> bytes:
+    """Parse OpenOCD mdw output into raw bytes (little-endian words)."""
+    result = bytearray()
+    for line in text.splitlines():
+        parts = line.split(":")
+        if len(parts) < 2:
+            continue
+        for h in parts[1].split():
+            try:
+                result.extend(struct.pack("<I", int(h, 16)))
+            except ValueError:
+                pass
+    return bytes(result)
+
+
+def _find_sector(info_text: str, addr: int):
+    """Parse 'flash info 0' output; return (sector_start, sector_size)."""
+    bank_base = DEFAULT_FLASH_BASE
+    m = re.search(r'at 0x([0-9a-f]+)', info_text, re.I)
+    if m:
+        bank_base = int(m.group(1), 16)
+    sectors = []
+    for line in info_text.splitlines():
+        m = re.match(r'\s*#\s*\d+:\s*0x([0-9a-f]+)\s+\(0x([0-9a-f]+)', line, re.I)
+        if m:
+            sectors.append((bank_base + int(m.group(1), 16), int(m.group(2), 16)))
+    for (start, size) in sectors:
+        if start <= addr < start + size:
+            return start, size
+    page_size = 0x800  # 2 KB fallback
+    return (addr // page_size) * page_size, page_size
 
 
 class MemReadWorker(QThread):
@@ -40,7 +76,7 @@ class MemReadWorker(QThread):
                     n = min(chunk_words, remaining)
                     cmd = f"mdw 0x{addr:08x} {n}"
                     resp = client.send(cmd)
-                    chunk = self._parse_mdw(resp)
+                    chunk = _parse_mdw(resp)
                     raw_bytes.extend(chunk)
                     addr += n * 4
                     remaining -= n
@@ -48,42 +84,76 @@ class MemReadWorker(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
-    def _parse_mdw(self, text: str) -> bytes:
-        """Parse OpenOCD mdw output into raw bytes (little-endian words)."""
-        result = bytearray()
-        for line in text.splitlines():
-            parts = line.split(":")
-            if len(parts) < 2:
-                continue
-            hex_parts = parts[1].split()
-            for h in hex_parts:
-                try:
-                    word = int(h, 16)
-                    result.extend(struct.pack("<I", word))
-                except ValueError:
-                    pass
-        return bytes(result)
 
-
-class MemWriteWorker(QThread):
-    log = pyqtSignal(str)
+class FlashWriteWorker(QThread):
+    log      = pyqtSignal(str)
     finished = pyqtSignal(bool, str)
 
-    def __init__(self, host, port, address, value_word, parent=None):
+    def __init__(self, host, port, byte_addr, new_byte,
+                 current_data, data_start_addr, parent=None):
         super().__init__(parent)
-        self._host = host
-        self._port = port
-        self._address = address
-        self._value = value_word
+        self._host, self._port = host, port
+        self._byte_addr, self._new_byte = byte_addr, new_byte
+        self._current_data = current_data
+        self._data_start = data_start_addr
 
     def run(self):
+        if self._byte_addr >= DEFAULT_FLASH_BASE:
+            self._write_flash()
+        else:
+            self._write_ram()
+
+    def _write_ram(self):
+        word_addr = self._byte_addr & ~3
+        offset = self._byte_addr - self._data_start
+        raw = bytearray(self._current_data[(offset & ~3):(offset & ~3) + 4])
+        if len(raw) < 4:
+            raw = bytearray(4)
+        raw[self._byte_addr - word_addr] = self._new_byte
+        word_val = struct.unpack("<I", bytes(raw[:4]))[0]
         try:
             with SyncClient(self._host, self._port) as client:
-                cmd = f"mww 0x{self._address:08x} 0x{self._value:08x}"
-                resp = client.send(cmd)
+                resp = client.send(f"mww 0x{word_addr:08x} 0x{word_val:08x}")
                 if resp:
                     self.log.emit(resp)
-                self.finished.emit(True, "Write OK")
+            self.finished.emit(True, f"RAM write OK at 0x{word_addr:08x}")
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
+    def _write_flash(self):
+        try:
+            with SyncClient(self._host, self._port) as client:
+                client.send("halt")
+                info = client.send("flash info 0")
+                sec_start, sec_size = _find_sector(info, self._byte_addr)
+                self.log.emit(f"[INFO] Flash page: 0x{sec_start:08x} size 0x{sec_size:x}")
+                # Read entire sector
+                words = sec_size // 4
+                raw = bytearray()
+                addr = sec_start
+                remaining = words
+                while remaining > 0:
+                    n = min(64, remaining)
+                    resp = client.send(f"mdw 0x{addr:08x} {n}")
+                    raw.extend(_parse_mdw(resp))
+                    addr += n * 4
+                    remaining -= n
+                # Modify byte
+                raw[self._byte_addr - sec_start] = self._new_byte
+                # Erase and write back
+                client.send(
+                    f"flash erase_address pad 0x{sec_start:08x} 0x{sec_size:x}"
+                )
+                with tempfile.NamedTemporaryFile(suffix='.bin', delete=False) as f:
+                    f.write(bytes(raw))
+                    tmp = f.name
+                try:
+                    client.send(
+                        f'flash write_image "{tmp}" 0x{sec_start:08x} bin'
+                    )
+                finally:
+                    os.unlink(tmp)
+            self.finished.emit(True, f"Flash write OK at 0x{self._byte_addr:08x}")
         except Exception as e:
             self.finished.emit(False, str(e))
 
@@ -246,26 +316,15 @@ class MemoryViewerWidget(QWidget):
             new_byte = int(item.text().strip(), 16) & 0xFF
         except ValueError:
             return
-        # Align to word boundary and write 32-bit word
-        word_addr = byte_addr & ~3
-        byte_offset_in_word = byte_addr - word_addr
-        # Read surrounding bytes from current data if available
-        data_offset = byte_addr - self._current_addr
-        raw = bytearray(self._current_data[
-            (data_offset & ~3): (data_offset & ~3) + 4
-        ])
-        if len(raw) < 4:
-            raw = bytearray(4)
-        raw[byte_offset_in_word] = new_byte
-        word_val = struct.unpack("<I", bytes(raw[:4]))[0]
 
-        self._write_worker = MemWriteWorker(
-            self._host, self._port, word_addr, word_val
+        self._write_worker = FlashWriteWorker(
+            self._host, self._port, byte_addr, new_byte,
+            self._current_data, self._current_addr
         )
         self._write_worker.log.connect(self.sig_log)
         self._write_worker.finished.connect(
             lambda ok, msg: self.sig_log.emit(
-                f"[INFO] Write 0x{word_addr:08X}: {msg}" if ok
+                f"[INFO] {msg}" if ok
                 else f"[ERROR] Write failed: {msg}"
             )
         )

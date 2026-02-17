@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.022] - 2026-02-17
+### Added
+- **Flash-aware byte write in Memory Viewer** — writes to flash addresses
+  (`≥ 0x08000000`) now perform a full read-modify-erase-write cycle using
+  `flash info 0` to locate the containing sector, reading back the sector,
+  patching the single byte, erasing, and programming via a temporary `.bin`
+  file; writes to RAM addresses still use the fast `mww` path
+- **Verify tab** — new permanent tab showing a side-by-side comparison of
+  flash contents vs a firmware binary file; each byte cell is colour-coded
+  (green = match, amber = differ); a summary label above the table reports
+  filename, base address, total bytes, match count, and differ count;
+  clicking **Verify** in Flash Ops switches to this tab automatically
+
+### Changed
+- **Flash Ops → Verify button** — no longer runs `verify_image` directly;
+  instead emits `sig_verify_requested` which triggers the Verify tab worker
+
 ## [0.021] - 2026-02-17
 ### Added
 - Initial versioned release

@@ -46,6 +46,7 @@ class FlashWorker(QThread):
 
 class FlashOpsWidget(QWidget):
     sig_log = pyqtSignal(str)
+    sig_verify_requested = pyqtSignal(str, int)  # (file_path, base_addr)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -159,8 +160,11 @@ class FlashOpsWidget(QWidget):
         if not path:
             self.sig_log.emit("[ERROR] No firmware file selected.")
             return
-        addr = self._addr_edit.text().strip() or hex(DEFAULT_FLASH_BASE)
-        self._run_commands([("Verify", f'verify_image "{path}" {addr}')])
+        try:
+            addr = int(self._addr_edit.text().strip(), 0)
+        except ValueError:
+            addr = DEFAULT_FLASH_BASE
+        self.sig_verify_requested.emit(path, addr)
 
     def _op_reset(self):
         self._run_commands([("Reset & Run", "reset run")])

@@ -7,7 +7,7 @@
 [![QDarkStyle](https://img.shields.io/badge/qdarkstyle-optional-555555)](https://github.com/ColinDuquesnoy/QDarkStyleSheet)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/zissis-pap/openocd-qt-gui)
 [![STM32](https://img.shields.io/badge/target-STM32-03234B?logo=stmicroelectronics&logoColor=white)](https://www.st.com/en/microcontrollers-microprocessors/stm32-32-bit-arm-cortex-mcus.html)
-[![Version](https://img.shields.io/badge/version-0.022-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.023-informational)](CHANGELOG.md)
 
 A **PyQt5 graphical frontend** for the [OpenOCD](https://openocd.org/) on-chip debugger.
 It lets you start/stop the OpenOCD server, flash firmware, inspect memory, and run
@@ -26,7 +26,8 @@ TCL scripts — all without touching a terminal.
 | **Server control** | Launch and terminate the OpenOCD subprocess from the GUI |
 | **MCU selector** | Built-in tree for all major STM32 families; custom `.cfg` also supported |
 | **Flash operations** | Halt · Erase · Program · Verify · Reset & Run · Read (dump) flash |
-| **Memory viewer** | Live hex dump with inline write-back and optional auto-refresh |
+| **Memory viewer** | Live hex dump with flash-safe inline write-back and optional auto-refresh |
+| **Verify tab** | Side-by-side byte comparison of flash vs firmware; green/amber cell colouring |
 | **Script console** | Interactive TCL prompt with command history + multi-line script editor |
 | **Live log** | Scrollable, colour-coded output panel; exportable to file |
 | **Dark theme** | Automatic via `qdarkstyle`; graceful fallback palette if not installed |
@@ -178,7 +179,7 @@ The Flash Ops, Memory Viewer, and Script Console tabs are now active.
 | **Halt** | Halts the CPU (`halt`) |
 | **Erase** | Halts then erases flash from the base address |
 | **Program** | Halts then programs and verifies the selected file |
-| **Verify** | Verifies the selected file against flash without writing |
+| **Verify** | Opens the **Verify tab** with a byte-level comparison of flash vs the selected file |
 | **Reset & Run** | Issues `reset run` to restart and execute firmware |
 | **Read Flash** | Halts, prompts for a save path, then dumps flash to a `.bin` file |
 
@@ -196,14 +197,61 @@ A progress bar tracks multi-step operations. All output is forwarded to the log 
 
 The table displays:
 - **Address** column (blue) — start address of each row.
-- **16 byte columns** — editable hex values. Changing a cell writes the enclosing
-  32-bit word back to the target immediately using `mww`.
+- **16 byte columns** — editable hex values. Changing a cell writes the byte back
+  to the target immediately using a path appropriate for the address:
+  - **Flash addresses** (`≥ 0x08000000`): the viewer halts the core, queries
+    `flash info 0` to find the containing sector, reads back the full sector,
+    patches the single byte, erases the sector, then programs it from a temporary
+    binary — so the surrounding flash content is preserved.
+  - **RAM addresses**: a fast `mww` (write word) is used directly.
 - **ASCII** column (green) — printable characters; `.` for non-printable bytes.
 
 Enable **Auto-refresh** and set an interval (minimum 500 ms) to continuously poll
 the memory region — useful for watching live register or variable values.
 
 ![](assets/memory_viewer.png)
+
+---
+
+### Verify tab
+
+The Verify tab gives a byte-level, side-by-side comparison of what is in flash versus
+what is in a firmware file.
+
+**Launching a verification:**
+
+1. In the **Flash Ops** tab, select your firmware file and set the base address.
+2. Click **Verify**. The application switches to the Verify tab automatically and
+   begins reading flash over the telnet connection.
+
+**Reading the table:**
+
+The table has 35 columns:
+
+| Column(s) | Content |
+|---|---|
+| **Address** | Start address of the row (blue) |
+| **F00 – F0F** | Flash bytes read from the device |
+| **Flash ASCII** | Printable representation of flash bytes (green) |
+| **B00 – B0F** | Corresponding bytes from the firmware file |
+| **File ASCII** | Printable representation of file bytes (green) |
+
+Every byte cell is colour-coded:
+
+- **Green** — flash byte matches the file byte.
+- **Amber** — flash byte differs from the file byte.
+
+A summary label above the table shows:
+
+```
+firmware.bin vs 0x08000000 — 65536 bytes | 65536 match  0 differ
+```
+
+A progress bar is visible while flash is being read and hides when the table is
+populated.
+
+> You can also navigate to the Verify tab at any time and trigger a new comparison
+> by going back to Flash Ops and clicking **Verify** again.
 
 ---
 
@@ -262,7 +310,8 @@ openocd-qt-gui/
     ├── server_control.py  Server configuration and start/stop/connect buttons
     ├── mcu_selector.py    MCU family tree + custom config input
     ├── flash_ops.py       Flash operations tab
-    ├── memory_viewer.py   Hex memory viewer/editor tab
+    ├── memory_viewer.py   Hex memory viewer/editor tab (flash-safe writes)
+    ├── verify_widget.py   Side-by-side flash vs firmware comparison tab
     ├── script_console.py  Interactive TCL console + script editor tab
     └── log_widget.py      Scrollable log output panel
 ```
