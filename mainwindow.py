@@ -1,6 +1,7 @@
 """Main application window."""
 
 import os
+from version import __version__ as VERSION
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout,
     QTabWidget, QLabel, QAction, QFileDialog, QMessageBox,
@@ -232,7 +233,8 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "About OpenOCD Qt GUI",
-            "<h3>OpenOCD Qt GUI</h3>"
+            f"<h3>OpenOCD Qt GUI</h3>"
+            f"<p><b>Version:</b> {VERSION}</p>"
             "<p>A PyQt5 frontend for OpenOCD debug server.</p>"
             "<p>Supports STM32 device families via ST-Link and other adapters.</p>"
             "<p>OpenOCD must be installed separately.</p>"

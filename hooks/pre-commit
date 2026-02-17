@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Pre-commit hook: auto-increment version in version.py and README.md
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+VERSION_FILE="$REPO_ROOT/version.py"
+README_FILE="$REPO_ROOT/README.md"
+
+# Read current version string (e.g. "0.021")
+current=$(grep -oP '(?<=__version__ = ")[^"]+' "$VERSION_FILE")
+
+# Extract the numeric suffix (e.g. 21)
+suffix="${current##*.}"
+
+# Increment and zero-pad to 3 digits
+new_suffix=$(printf "%03d" $(( 10#$suffix + 1 )))
+new_version="0.$new_suffix"
+
+# Update version.py
+sed -i "s/__version__ = \"$current\"/__version__ = \"$new_version\"/" "$VERSION_FILE"
+
+# Update version badge in README.md
+sed -i "s|version-${current}-informational|version-${new_version}-informational|" "$README_FILE"
+
+# Stage the modified files
+git add "$VERSION_FILE" "$README_FILE"
+
+echo "Version bumped: $current → $new_version"
