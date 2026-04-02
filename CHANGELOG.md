@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.027] - 2026-04-02
+### Added
+- **Memory Viewer progress bar** — a progress bar appears below the controls while
+  a memory read is in progress and hides automatically when the table is populated
+  or on error; progress is updated per 64-word chunk so large reads (e.g. whole flash
+  on high-density MCUs) show smooth incremental feedback
+
 ## [0.026] - 2026-04-02
 ### Added
 - **Read Whole Flash in Memory Viewer** — new "Read Whole Flash" button queries

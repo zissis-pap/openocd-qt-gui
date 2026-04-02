@@ -7,7 +7,8 @@ import struct
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
     QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
-    QHeaderView, QGroupBox, QCheckBox, QSpinBox, QSizePolicy
+    QHeaderView, QGroupBox, QCheckBox, QSpinBox, QSizePolicy,
+    QProgressBar
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QThread, QTimer
 from PyQt5.QtGui import QFont, QColor
@@ -72,8 +73,8 @@ class FlashInfoWorker(QThread):
     bank_ready = pyqtSignal(int, int)   # (base_addr, total_size)
     error      = pyqtSignal(str)
 
-    def __init__(self, host, port, parent=None):
-        super().__init__(parent)
+    def __init__(self, host, port):
+        super().__init__()
         self._host = host
         self._port = port
 
@@ -89,8 +90,9 @@ class FlashInfoWorker(QThread):
 
 class MemReadWorker(QThread):
     data_ready = pyqtSignal(int, bytes)   # (start_addr, raw_bytes)
-    log = pyqtSignal(str)
-    error = pyqtSignal(str)
+    progress   = pyqtSignal(int)          # 0–100
+    log        = pyqtSignal(str)
+    error      = pyqtSignal(str)
 
     def __init__(self, host, port, address, size, parent=None):
         super().__init__(parent)
@@ -104,18 +106,19 @@ class MemReadWorker(QThread):
         try:
             with SyncClient(self._host, self._port) as client:
                 raw_bytes = bytearray()
-                # Read in chunks of 64 words to avoid too-long output lines
                 chunk_words = 64
-                addr = self._address
+                addr      = self._address
                 remaining = words
+                done      = 0
                 while remaining > 0:
-                    n = min(chunk_words, remaining)
-                    cmd = f"mdw 0x{addr:08x} {n}"
+                    n    = min(chunk_words, remaining)
+                    cmd  = f"mdw 0x{addr:08x} {n}"
                     resp = client.send(cmd)
-                    chunk = _parse_mdw(resp)
-                    raw_bytes.extend(chunk)
-                    addr += n * 4
+                    raw_bytes.extend(_parse_mdw(resp))
+                    addr      += n * 4
                     remaining -= n
+                    done      += n
+                    self.progress.emit(int(done / words * 100))
                 self.data_ready.emit(self._address, bytes(raw_bytes[: self._size]))
         except Exception as e:
             self.error.emit(str(e))
@@ -260,6 +263,15 @@ class MemoryViewerWidget(QWidget):
         ctrl_form.addRow("", btn_row)
         layout.addWidget(ctrl_grp)
 
+        # Progress bar (hidden when idle)
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 100)
+        self._progress.setValue(0)
+        self._progress.setTextVisible(True)
+        self._progress.setFixedHeight(16)
+        self._progress.hide()
+        layout.addWidget(self._progress)
+
         # Hex table
         self._table = QTableWidget()
         mono = QFont("Monospace", 9)
@@ -294,9 +306,10 @@ class MemoryViewerWidget(QWidget):
         self._btn_whole_flash.setEnabled(False)
         self._btn_read.setEnabled(False)
         self.sig_log.emit("[INFO] Querying flash bank geometry…")
-        self._flash_info_worker = FlashInfoWorker(self._host, self._port, self)
+        self._flash_info_worker = FlashInfoWorker(self._host, self._port)
         self._flash_info_worker.bank_ready.connect(self._on_bank_ready)
         self._flash_info_worker.error.connect(self._on_flash_info_error)
+        self._flash_info_worker.finished.connect(self._flash_info_worker.deleteLater)
         self._flash_info_worker.start()
 
     def _on_bank_ready(self, base: int, size: int):
@@ -324,18 +337,24 @@ class MemoryViewerWidget(QWidget):
             return
         self._current_addr = addr
         self._btn_read.setEnabled(False)
+        self._progress.setValue(0)
+        self._progress.show()
         self._read_worker = MemReadWorker(self._host, self._port, addr, size)
+        self._read_worker.progress.connect(self._progress.setValue)
         self._read_worker.data_ready.connect(self._populate_table)
         self._read_worker.error.connect(self._on_read_error)
+        self._read_worker.finished.connect(self._read_worker.deleteLater)
         self._read_worker.start()
 
     def _on_read_error(self, msg: str):
         self.sig_log.emit(f"[ERROR] Memory read failed: {msg}")
         self._btn_read.setEnabled(True)
+        self._progress.hide()
 
     def _populate_table(self, start_addr: int, data: bytes):
         self._current_data = data
         self._btn_read.setEnabled(True)
+        self._progress.hide()
         rows = (len(data) + _COLS_PER_ROW - 1) // _COLS_PER_ROW
 
         # Block signals while repopulating
