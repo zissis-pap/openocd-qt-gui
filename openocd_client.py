@@ -143,6 +143,43 @@ class OpenOCDProbeWorker(QThread):
             pass   # not running — silent
 
 
+class ShutdownWorker(QThread):
+    """Send 'shutdown' to an external OpenOCD instance via a temporary connection."""
+    done = pyqtSignal(bool, str)   # (success, message)
+
+    def __init__(self, host="localhost", port=4444):
+        super().__init__()
+        self._host = host
+        self._port = port
+
+    def run(self):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(3.0)
+            sock.connect((self._host, self._port))
+            sock.settimeout(5.0)
+            # consume initial prompt
+            buf = b""
+            while not buf.endswith(_PROMPT):
+                chunk = sock.recv(_RECV_CHUNK)
+                if not chunk:
+                    break
+                buf += chunk
+            sock.sendall(b"shutdown\n")
+            # drain response until server closes the connection
+            try:
+                while True:
+                    chunk = sock.recv(_RECV_CHUNK)
+                    if not chunk:
+                        break
+            except Exception:
+                pass
+            sock.close()
+            self.done.emit(True, "OpenOCD shutdown command sent successfully.")
+        except Exception as e:
+            self.done.emit(False, str(e))
+
+
 class SyncClient:
     """Simple synchronous client for use in worker threads (FlashWorker, etc.)."""
 

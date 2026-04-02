@@ -309,7 +309,7 @@ class MemoryViewerWidget(QWidget):
         self._flash_info_worker = FlashInfoWorker(self._host, self._port)
         self._flash_info_worker.bank_ready.connect(self._on_bank_ready)
         self._flash_info_worker.error.connect(self._on_flash_info_error)
-        self._flash_info_worker.finished.connect(self._flash_info_worker.deleteLater)
+        self._flash_info_worker.finished.connect(self._on_flash_info_worker_done)
         self._flash_info_worker.start()
 
     def _on_bank_ready(self, base: int, size: int):
@@ -325,6 +325,16 @@ class MemoryViewerWidget(QWidget):
         self._btn_whole_flash.setEnabled(True)
         self._btn_read.setEnabled(True)
         self.sig_log.emit(f"[ERROR] Flash info failed: {msg}")
+
+    def _on_flash_info_worker_done(self):
+        if self._flash_info_worker is not None:
+            self._flash_info_worker.deleteLater()
+            self._flash_info_worker = None
+
+    def _on_read_worker_done(self):
+        if self._read_worker is not None:
+            self._read_worker.deleteLater()
+            self._read_worker = None
 
     def _do_read(self):
         if self._read_worker and self._read_worker.isRunning():
@@ -343,7 +353,7 @@ class MemoryViewerWidget(QWidget):
         self._read_worker.progress.connect(self._progress.setValue)
         self._read_worker.data_ready.connect(self._populate_table)
         self._read_worker.error.connect(self._on_read_error)
-        self._read_worker.finished.connect(self._read_worker.deleteLater)
+        self._read_worker.finished.connect(self._on_read_worker_done)
         self._read_worker.start()
 
     def _on_read_error(self, msg: str):

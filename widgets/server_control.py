@@ -38,13 +38,15 @@ class StatusDot(QLabel):
 
 
 class ServerControlWidget(QWidget):
-    sig_start = pyqtSignal(str, str, int, int)  # (executable, interface_cfg, telnet_port, tcl_port)
-    sig_stop = pyqtSignal()
-    sig_connect = pyqtSignal(str, int)          # (host, telnet_port)
-    sig_disconnect = pyqtSignal()
+    sig_start           = pyqtSignal(str, str, int, int)  # (executable, interface_cfg, telnet_port, tcl_port)
+    sig_stop            = pyqtSignal()
+    sig_stop_external   = pyqtSignal(str, int)            # (host, telnet_port)
+    sig_connect         = pyqtSignal(str, int)            # (host, telnet_port)
+    sig_disconnect      = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._is_external = False
         self._setup_ui()
 
     def _setup_ui(self):
@@ -138,12 +140,16 @@ class ServerControlWidget(QWidget):
 
     def on_openocd_detected(self):
         """Called when an already-running OpenOCD instance is found at startup."""
+        self._is_external = True
         self._dot.set_external()
         self._status_label.setText("Running (external)")
         self._pid_label.setText("")
+        self._btn_start.setEnabled(False)
+        self._btn_stop.setEnabled(True)
         self._btn_connect.setEnabled(True)
 
     def on_server_started(self, pid: int):
+        self._is_external = False
         self._dot.set_running()
         self._status_label.setText("Running")
         self._pid_label.setText(f"PID {pid}")
@@ -152,6 +158,7 @@ class ServerControlWidget(QWidget):
         self._btn_connect.setEnabled(True)
 
     def on_server_stopped(self):
+        self._is_external = False
         self._dot.set_stopped()
         self._status_label.setText("Stopped")
         self._pid_label.setText("")
@@ -201,7 +208,10 @@ class ServerControlWidget(QWidget):
         )
 
     def _on_stop(self):
-        self.sig_stop.emit()
+        if self._is_external:
+            self.sig_stop_external.emit("localhost", self.telnet_port)
+        else:
+            self.sig_stop.emit()
 
     def _on_connect(self):
         self.sig_connect.emit("localhost", self.telnet_port)

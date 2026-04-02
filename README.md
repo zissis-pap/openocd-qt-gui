@@ -7,7 +7,7 @@
 [![QDarkStyle](https://img.shields.io/badge/qdarkstyle-optional-555555)](https://github.com/ColinDuquesnoy/QDarkStyleSheet)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/zissis-pap/openocd-qt-gui)
 [![STM32](https://img.shields.io/badge/target-STM32-03234B?logo=stmicroelectronics&logoColor=white)](https://www.st.com/en/microcontrollers-microprocessors/stm32-32-bit-arm-cortex-mcus.html)
-[![Version](https://img.shields.io/badge/version-0.028-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.029-informational)](CHANGELOG.md)
 
 A **PyQt5 graphical frontend** for the [OpenOCD](https://openocd.org/) on-chip debugger.
 It lets you start/stop the OpenOCD server, flash firmware, inspect memory, and run
@@ -23,7 +23,7 @@ TCL scripts — all without touching a terminal.
 
 | Feature | Description |
 |---|---|
-| **Server control** | Launch and terminate the OpenOCD subprocess from the GUI; detects an already-running instance on startup |
+| **Server control** | Launch and terminate the OpenOCD subprocess from the GUI; detects an already-running instance on startup and allows stopping or disconnecting from it |
 | **MCU selector** | Built-in tree for all major STM32 families; custom `.cfg` also supported |
 | **Flash operations** | Halt · Erase · Program · Verify · Reset & Run · Read (dump) flash |
 | **Memory viewer** | Live hex dump with flash-safe inline write-back, optional auto-refresh, one-click whole-flash read, and progress bar during reads |
@@ -160,8 +160,12 @@ OpenOCD output appears immediately in the **log panel** at the bottom.
 
 > **Startup detection:** if OpenOCD is already running when the app launches, it is
 > detected automatically within 300 ms. The status dot turns **amber** ("Running
-> externally") and the **Connect** button is enabled without needing to click Start.
-> A message is shown in the log panel and status bar.
+> externally"), the **Connect** button is enabled without needing to click Start,
+> and the **Stop** button is enabled to shut down the external instance.
+>
+> - **Stop** — sends a `shutdown` command via the telnet interface (using the active
+>   connection if already connected, or a temporary one otherwise) and resets the UI.
+> - **Disconnect** — closes the telnet session without stopping the OpenOCD process.
 
 ### Step 4 — Connect
 

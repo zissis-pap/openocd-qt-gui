@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.029] - 2026-04-02
+### Added
+- **Stop external OpenOCD** — when an already-running OpenOCD instance is detected at
+  startup, the Stop button is now enabled; clicking it sends a `shutdown` command via
+  the telnet interface (using the live connection if already connected, or a temporary
+  one otherwise) and resets the UI to the Stopped state on success
+- **Disconnect from externally-detected instance** — the Disconnect button remains
+  available after connecting to an external instance, allowing the telnet session to
+  be closed without stopping the OpenOCD process
+
 ## [0.028] - 2026-04-02
 ### Added
 - **Startup OpenOCD detection** — on launch the app probes the configured telnet port

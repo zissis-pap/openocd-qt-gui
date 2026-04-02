@@ -11,7 +11,7 @@ from PyQt5.QtCore import Qt, QThread, QTimer
 from PyQt5.QtGui import QIcon
 
 from openocd_manager import OpenOCDManager
-from openocd_client import OpenOCDClient, OpenOCDProbeWorker
+from openocd_client import OpenOCDClient, OpenOCDProbeWorker, ShutdownWorker
 from widgets.server_control import ServerControlWidget
 from widgets.mcu_selector import MCUSelectorWidget
 from widgets.flash_ops import FlashOpsWidget
@@ -179,6 +179,7 @@ class MainWindow(QMainWindow):
         # Server control → manager / client
         self._server_ctrl.sig_start.connect(self._start_server)
         self._server_ctrl.sig_stop.connect(self._manager.stop)
+        self._server_ctrl.sig_stop_external.connect(self._stop_external_openocd)
         self._server_ctrl.sig_connect.connect(self._client.connect_to_server)
         self._server_ctrl.sig_disconnect.connect(self._client.disconnect)
 
@@ -211,6 +212,28 @@ class MainWindow(QMainWindow):
             "You can connect directly."
         )
         self.statusBar().showMessage(f"OpenOCD detected on port {port}")
+
+    def _stop_external_openocd(self, host: str, port: int):
+        """Shut down an externally-running OpenOCD via its telnet interface."""
+        if self._client.is_connected:
+            # Already connected — send shutdown and let the disconnection flow
+            # update the UI naturally via _on_client_disconnected → on_server_stopped.
+            self._client.send_command("shutdown_ext", "shutdown")
+            self._log_widget.append_line("[INFO] Sending shutdown to external OpenOCD…")
+        else:
+            self._log_widget.append_line("[INFO] Sending shutdown to external OpenOCD…")
+            self._shutdown_worker = ShutdownWorker(host, port)
+            self._shutdown_worker.done.connect(self._on_external_shutdown_done)
+            self._shutdown_worker.finished.connect(self._shutdown_worker.deleteLater)
+            self._shutdown_worker.start()
+
+    def _on_external_shutdown_done(self, ok: bool, msg: str):
+        if ok:
+            self._log_widget.append_line(f"[INFO] {msg}")
+            self._server_ctrl.on_server_stopped()
+            self.statusBar().showMessage("External OpenOCD stopped")
+        else:
+            self._log_widget.append_line(f"[ERROR] Shutdown failed: {msg}")
 
     def _start_server(self, executable: str, interface_cfg: str, telnet_port: int, tcl_port: int):
         target_cfg = self._mcu_selector.target_config
