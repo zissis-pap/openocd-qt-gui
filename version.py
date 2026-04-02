@@ -1,2 +1,2 @@
 """Application version."""
-__version__ = "0.024"
+__version__ = "0.025"

@@ -24,8 +24,32 @@ _COL_ADDR  = 0
 _COL_NAME  = 1
 _COL_SIZE  = 2
 _COL_DATA  = 3
-_NUM_COLS  = 4
-_HEADERS   = ["Address", "Name", "Size (bytes)", "Data (hex)"]
+_COL_CURR  = 4
+_NUM_COLS  = 5
+_HEADERS   = ["Address", "Name", "Size (bytes)", "Data (hex)", "Current Value"]
+
+
+def _format_value(raw: bytes) -> str:
+    """Format raw bytes for display in the Current Value column.
+
+    • 1–4 bytes: numeric (decimal if ≤ 65535, else hex) plus quoted ASCII
+      when at least one byte is printable.
+    • >4 bytes: quoted ASCII string ('.' for non-printable bytes); falls back
+      to a space-separated hex dump when no byte is printable.
+    """
+    has_printable = any(0x20 <= b <= 0x7E for b in raw)
+    ascii_ = "".join(chr(b) if 0x20 <= b <= 0x7E else "." for b in raw)
+
+    if len(raw) <= 4:
+        val     = int.from_bytes(raw, "little")
+        numeric = str(val) if val <= 65535 else hex(val)
+        if has_printable:
+            return f'{numeric}  "{ascii_}"'
+        return numeric
+    else:
+        if has_printable:
+            return f'"{ascii_}"'
+        return " ".join(f"{b:02X}" for b in raw)
 
 
 def _parse_data(data_str: str, size: int) -> bytes:
@@ -164,14 +188,51 @@ class ContentEditorWorker(QThread):
             )
 
 
+class ReadCurrentWorker(QThread):
+    """Read current flash/RAM values for a list of variables."""
+    value_ready = pyqtSignal(int, str)   # (row_index, formatted_value)
+    log         = pyqtSignal(str)
+    finished    = pyqtSignal(bool, str)
+
+    def __init__(self, host, port, variables, parent=None):
+        """
+        variables: list of (row_idx: int, addr: int, size: int)
+        """
+        super().__init__(parent)
+        self._host      = host
+        self._port      = port
+        self._variables = variables
+
+    def run(self):
+        try:
+            with SyncClient(self._host, self._port) as client:
+                for row_idx, addr, size in self._variables:
+                    words     = (size + 3) // 4
+                    raw       = bytearray()
+                    read_addr = addr
+                    remaining = words
+                    while remaining > 0:
+                        n    = min(64, remaining)
+                        resp = client.send(f"mdw 0x{read_addr:08x} {n}")
+                        raw.extend(_parse_mdw(resp))
+                        read_addr += n * 4
+                        remaining -= n
+                    raw = raw[:size]
+                    self.value_ready.emit(row_idx, _format_value(bytes(raw)))
+            self.finished.emit(True, "Read complete.")
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
+
 class ContentEditorWidget(QWidget):
     sig_log = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._host   = "localhost"
-        self._port   = 4444
-        self._worker = None
+        self._host         = "localhost"
+        self._port         = 4444
+        self._worker       = None
+        self._read_worker  = None
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -206,6 +267,7 @@ class ContentEditorWidget(QWidget):
         hdr.setSectionResizeMode(_COL_NAME, QHeaderView.Stretch)
         hdr.setSectionResizeMode(_COL_SIZE, QHeaderView.ResizeToContents)
         hdr.setSectionResizeMode(_COL_DATA, QHeaderView.Stretch)
+        hdr.setSectionResizeMode(_COL_CURR, QHeaderView.ResizeToContents)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.setAlternatingRowColors(True)
@@ -251,6 +313,12 @@ class ContentEditorWidget(QWidget):
         store_vbox.addWidget(self._progress)
 
         bottom_row = QHBoxLayout()
+        self._btn_read_current = QPushButton("Read Values")
+        self._btn_read_current.setFixedHeight(32)
+        self._btn_read_current.setToolTip("Read current values from flash for all variables")
+        self._btn_read_current.clicked.connect(self._do_read_current)
+        bottom_row.addWidget(self._btn_read_current)
+
         self._btn_store = QPushButton("Store")
         self._btn_store.setFixedHeight(32)
         self._btn_store.setStyleSheet(
@@ -281,6 +349,7 @@ class ContentEditorWidget(QWidget):
             item = QTableWidgetItem(text)
             item.setTextAlignment(Qt.AlignCenter if col != _COL_NAME else Qt.AlignLeft | Qt.AlignVCenter)
             self._table.setItem(row, col, item)
+        self._table.setItem(row, _COL_CURR, self._make_curr_item("—"))
 
     def _remove_row(self):
         rows = sorted(
@@ -289,6 +358,54 @@ class ContentEditorWidget(QWidget):
         )
         for row in rows:
             self._table.removeRow(row)
+
+    # ------------------------------------------------------------------
+    # Current Value column helpers
+    # ------------------------------------------------------------------
+
+    def _make_curr_item(self, text: str) -> QTableWidgetItem:
+        item = QTableWidgetItem(text)
+        item.setFlags(Qt.ItemIsEnabled)          # read-only
+        item.setTextAlignment(Qt.AlignCenter)
+        item.setForeground(QColor("#88aaff"))
+        return item
+
+    def _do_read_current(self):
+        if self._read_worker and self._read_worker.isRunning():
+            return
+
+        specs = []
+        for row in range(self._table.rowCount()):
+            addr_text = self._cell_text(row, _COL_ADDR)
+            size_text = self._cell_text(row, _COL_SIZE)
+            try:
+                addr = int(addr_text, 0)
+                size = int(size_text, 0)
+                if size <= 0:
+                    raise ValueError
+            except ValueError:
+                self._table.setItem(row, _COL_CURR, self._make_curr_item("err"))
+                continue
+            specs.append((row, addr, size))
+            self._table.setItem(row, _COL_CURR, self._make_curr_item("…"))
+
+        if not specs:
+            self.sig_log.emit("[WARN] No valid variables to read.")
+            return
+
+        self._btn_read_current.setEnabled(False)
+        self._read_worker = ReadCurrentWorker(self._host, self._port, specs, parent=self)
+        self._read_worker.log.connect(self.sig_log)
+        self._read_worker.value_ready.connect(
+            lambda row, val: self._table.setItem(row, _COL_CURR, self._make_curr_item(val))
+        )
+        self._read_worker.finished.connect(self._on_read_finished)
+        self._read_worker.start()
+
+    def _on_read_finished(self, ok: bool, msg: str):
+        self._btn_read_current.setEnabled(True)
+        if not ok:
+            self.sig_log.emit(f"[ERROR] Read values failed: {msg}")
 
     # ------------------------------------------------------------------
     # Save / Load variable set
@@ -358,6 +475,7 @@ class ContentEditorWidget(QWidget):
                     else Qt.AlignCenter
                 )
                 self._table.setItem(row, col, item)
+            self._table.setItem(row, _COL_CURR, self._make_curr_item("—"))
 
         self.sig_log.emit(
             f"[INFO] Loaded {len(rows)} variable(s) from {path}"
@@ -442,6 +560,7 @@ class ContentEditorWidget(QWidget):
             self.sig_log.emit(f"[INFO] {msg}")
             self._status_label.setText(msg)
             self._status_label.setStyleSheet("padding: 0 8px; color: #66ff66;")
+            self._do_read_current()
         else:
             self.sig_log.emit(f"[ERROR] {msg}")
             self._status_label.setText(f"Failed: {msg}")

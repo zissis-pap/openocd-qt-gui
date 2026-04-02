@@ -7,7 +7,7 @@
 [![QDarkStyle](https://img.shields.io/badge/qdarkstyle-optional-555555)](https://github.com/ColinDuquesnoy/QDarkStyleSheet)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/zissis-pap/openocd-qt-gui)
 [![STM32](https://img.shields.io/badge/target-STM32-03234B?logo=stmicroelectronics&logoColor=white)](https://www.st.com/en/microcontrollers-microprocessors/stm32-32-bit-arm-cortex-mcus.html)
-[![Version](https://img.shields.io/badge/version-0.023-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.025-informational)](CHANGELOG.md)
 
 A **PyQt5 graphical frontend** for the [OpenOCD](https://openocd.org/) on-chip debugger.
 It lets you start/stop the OpenOCD server, flash firmware, inspect memory, and run
@@ -28,6 +28,7 @@ TCL scripts — all without touching a terminal.
 | **Flash operations** | Halt · Erase · Program · Verify · Reset & Run · Read (dump) flash |
 | **Memory viewer** | Live hex dump with flash-safe inline write-back and optional auto-refresh |
 | **Verify tab** | Side-by-side byte comparison of flash vs firmware; green/amber cell colouring |
+| **Content Editor** | Named variable table; read-modify-erase-write individual flash variables; displays current flash values with ASCII preview; save/load variable sets to file |
 | **Script console** | Interactive TCL prompt with command history + multi-line script editor |
 | **Live log** | Scrollable, colour-coded output panel; exportable to file |
 | **Dark theme** | Automatic via `qdarkstyle`; graceful fallback palette if not installed |
@@ -161,7 +162,7 @@ OpenOCD output appears immediately in the **log panel** at the bottom.
 
 Click **Connect** to open a telnet session on the configured port.
 The status bar changes from *Disconnected* (red) to *Connected* (green).
-The Flash Ops, Memory Viewer, and Script Console tabs are now active.
+The Flash Ops, Memory Viewer, Content Editor, and Script Console tabs are now active.
 
 ![](assets/connected.png)
 
@@ -255,6 +256,71 @@ populated.
 
 ---
 
+### Content Editor tab
+
+The Content Editor lets you define named flash variables and write them individually
+without re-flashing the entire firmware image.
+
+#### Defining variables
+
+Each row in the table represents one variable:
+
+| Column | Description |
+|---|---|
+| **Address** | Flash address in hex (e.g. `0x08001000`) |
+| **Name** | Human-readable label |
+| **Size (bytes)** | Number of bytes the variable occupies |
+| **Data (hex)** | Value to write — see accepted formats below |
+| **Current Value** | Value currently stored in flash (read-only; refreshed on demand) |
+
+**Accepted data formats:**
+
+| Input | Interpretation |
+|---|---|
+| `0xDEADBEEF` | Integer literal, stored little-endian |
+| `3000` | Decimal integer, stored little-endian |
+| `DE AD BE EF` | Space-separated hex bytes, stored in order |
+| `DEADBEEF` | Continuous hex string, stored in order |
+
+For string variables, enter the bytes as space-separated hex (e.g. `48 65 6C 6C 6F 00`).
+
+#### Reading current values
+
+Click **Read Values** to read every variable's current content from flash.
+The **Current Value** column shows:
+- A decimal number for values ≤ 65 535
+- A hex number for larger numeric values
+- A quoted ASCII string for variables > 4 bytes (e.g. `"Hello."`)
+- A space-separated hex dump when no bytes are printable
+
+#### Writing to flash
+
+Click **Store** to perform a read-modify-erase-write cycle for all variables:
+
+1. The target is halted.
+2. All flash sectors touched by the variable list are identified.
+3. Each sector is read back in full, the new variable bytes are patched in, the sector is erased, and the modified image is written back.
+4. Current values are refreshed automatically when the operation completes.
+
+Multiple variables in the same sector are batched into a single erase/write cycle.
+
+#### Saving and loading variable sets
+
+- **Save Set…** — exports the current table to a `.varset` (JSON) file.
+- **Load Set…** — imports a previously saved `.varset` file and populates the table.
+
+The file format is plain JSON and can be edited by hand:
+
+```json
+[
+  {"address": "0x08001000", "name": "device_id",  "size": "4",  "data": "0x00000001"},
+  {"address": "0x08001004", "name": "timeout_ms", "size": "2",  "data": "1000"},
+  {"address": "0x08001010", "name": "label",      "size": "16", "data": "48 65 6C 6C 6F 00 00 00 00 00 00 00 00 00 00 00"}
+]
+```
+
+---
+
 ### Script Console tab
 
 #### Interactive console (top half)
@@ -312,6 +378,7 @@ openocd-qt-gui/
     ├── flash_ops.py       Flash operations tab
     ├── memory_viewer.py   Hex memory viewer/editor tab (flash-safe writes)
     ├── verify_widget.py   Side-by-side flash vs firmware comparison tab
+    ├── content_editor.py  Named variable editor tab (read-modify-erase-write)
     ├── script_console.py  Interactive TCL console + script editor tab
     └── log_widget.py      Scrollable log output panel
 ```

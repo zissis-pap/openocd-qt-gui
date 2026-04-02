@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.025] - 2026-04-02
+### Added
+- **Current Value column in Content Editor** — reads the value currently stored in flash
+  for each variable and displays it in the table; values ≤ 65535 are shown in decimal,
+  larger values in hex; for variables > 4 bytes (e.g. strings) the ASCII representation
+  is shown instead of a numeric value, with `.` substituted for non-printable bytes;
+  non-printable-only buffers fall back to a space-separated hex dump
+- **Read Values button** — manually triggers a flash read for all defined variables;
+  current values are also refreshed automatically after a successful Store operation
+
 ## [0.024] - 2026-04-02
 ### Added
 - **Content Editor tab** — new tab for read-modify-erase-write of named flash variables;
