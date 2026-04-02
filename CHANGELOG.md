@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.026] - 2026-04-02
+### Added
+- **Read Whole Flash in Memory Viewer** — new "Read Whole Flash" button queries
+  `flash info 0` to discover the flash bank base address and total size (sum of all
+  sectors), populates the address and size fields automatically, and triggers a full
+  read; the detected geometry is reported in the log panel
+
 ## [0.025] - 2026-04-02
 ### Added
 - **Current Value column in Content Editor** — reads the value currently stored in flash

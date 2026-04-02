@@ -7,7 +7,7 @@
 [![QDarkStyle](https://img.shields.io/badge/qdarkstyle-optional-555555)](https://github.com/ColinDuquesnoy/QDarkStyleSheet)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/zissis-pap/openocd-qt-gui)
 [![STM32](https://img.shields.io/badge/target-STM32-03234B?logo=stmicroelectronics&logoColor=white)](https://www.st.com/en/microcontrollers-microprocessors/stm32-32-bit-arm-cortex-mcus.html)
-[![Version](https://img.shields.io/badge/version-0.025-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.026-informational)](CHANGELOG.md)
 
 A **PyQt5 graphical frontend** for the [OpenOCD](https://openocd.org/) on-chip debugger.
 It lets you start/stop the OpenOCD server, flash firmware, inspect memory, and run
@@ -26,7 +26,7 @@ TCL scripts — all without touching a terminal.
 | **Server control** | Launch and terminate the OpenOCD subprocess from the GUI |
 | **MCU selector** | Built-in tree for all major STM32 families; custom `.cfg` also supported |
 | **Flash operations** | Halt · Erase · Program · Verify · Reset & Run · Read (dump) flash |
-| **Memory viewer** | Live hex dump with flash-safe inline write-back and optional auto-refresh |
+| **Memory viewer** | Live hex dump with flash-safe inline write-back, optional auto-refresh, and one-click whole-flash read |
 | **Verify tab** | Side-by-side byte comparison of flash vs firmware; green/amber cell colouring |
 | **Content Editor** | Named variable table; read-modify-erase-write individual flash variables; displays current flash values with ASCII preview; save/load variable sets to file |
 | **Script console** | Interactive TCL prompt with command history + multi-line script editor |
@@ -195,6 +195,12 @@ A progress bar tracks multi-step operations. All output is forwarded to the log 
 1. Enter a **hex or decimal address** (e.g. `0x20000000` for SRAM).
 2. Enter the number of **bytes** to read (e.g. `256`).
 3. Click **Read** (or **Refresh** to re-read the same region).
+
+Alternatively, click **Read Whole Flash** to let the tool detect the flash bank
+geometry automatically. It sends `flash info 0` to OpenOCD, parses the bank base
+address and total size from the sector list, fills in the address and size fields,
+and starts the read. The detected geometry (base address and size in KB) is reported
+in the log panel.
 
 The table displays:
 - **Address** column (blue) — start address of each row.

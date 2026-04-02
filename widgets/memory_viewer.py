@@ -51,6 +51,42 @@ def _find_sector(info_text: str, addr: int):
     return (addr // page_size) * page_size, page_size
 
 
+def _parse_flash_bank(info_text: str):
+    """Parse 'flash info 0' output; return (bank_base, total_size)."""
+    bank_base = DEFAULT_FLASH_BASE
+    m = re.search(r'at 0x([0-9a-f]+)', info_text, re.I)
+    if m:
+        bank_base = int(m.group(1), 16)
+    total = 0
+    for line in info_text.splitlines():
+        m = re.match(r'\s*#\s*\d+:\s*0x([0-9a-f]+)\s+\(0x([0-9a-f]+)', line, re.I)
+        if m:
+            total += int(m.group(2), 16)
+    if total == 0:
+        total = 128 * 1024  # 128 KB safe fallback
+    return bank_base, total
+
+
+class FlashInfoWorker(QThread):
+    """Query flash bank geometry via 'flash info 0'."""
+    bank_ready = pyqtSignal(int, int)   # (base_addr, total_size)
+    error      = pyqtSignal(str)
+
+    def __init__(self, host, port, parent=None):
+        super().__init__(parent)
+        self._host = host
+        self._port = port
+
+    def run(self):
+        try:
+            with SyncClient(self._host, self._port) as client:
+                info = client.send("flash info 0")
+            base, size = _parse_flash_bank(info)
+            self.bank_ready.emit(base, size)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class MemReadWorker(QThread):
     data_ready = pyqtSignal(int, bytes)   # (start_addr, raw_bytes)
     log = pyqtSignal(str)
@@ -169,6 +205,7 @@ class MemoryViewerWidget(QWidget):
         self._current_data = b""
         self._read_worker = None
         self._write_worker = None
+        self._flash_info_worker = None
         self._auto_timer = QTimer(self)
         self._auto_timer.timeout.connect(self._do_read)
         self._setup_ui()
@@ -202,6 +239,13 @@ class MemoryViewerWidget(QWidget):
         self._btn_refresh = QPushButton("Refresh")
         self._btn_refresh.clicked.connect(self._do_read)
         btn_row.addWidget(self._btn_refresh)
+
+        self._btn_whole_flash = QPushButton("Read Whole Flash")
+        self._btn_whole_flash.setToolTip(
+            "Query flash bank geometry via 'flash info 0', then read the entire flash"
+        )
+        self._btn_whole_flash.clicked.connect(self._do_read_whole_flash)
+        btn_row.addWidget(self._btn_whole_flash)
 
         self._auto_check = QCheckBox("Auto-refresh")
         self._auto_check.toggled.connect(self._toggle_auto)
@@ -243,6 +287,31 @@ class MemoryViewerWidget(QWidget):
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _do_read_whole_flash(self):
+        if self._flash_info_worker and self._flash_info_worker.isRunning():
+            return
+        self._btn_whole_flash.setEnabled(False)
+        self._btn_read.setEnabled(False)
+        self.sig_log.emit("[INFO] Querying flash bank geometry…")
+        self._flash_info_worker = FlashInfoWorker(self._host, self._port, self)
+        self._flash_info_worker.bank_ready.connect(self._on_bank_ready)
+        self._flash_info_worker.error.connect(self._on_flash_info_error)
+        self._flash_info_worker.start()
+
+    def _on_bank_ready(self, base: int, size: int):
+        self._btn_whole_flash.setEnabled(True)
+        self.sig_log.emit(
+            f"[INFO] Flash bank: base=0x{base:08x}  size=0x{size:x} ({size // 1024} KB)"
+        )
+        self._addr_edit.setText(hex(base))
+        self._size_edit.setText(str(size))
+        self._do_read()
+
+    def _on_flash_info_error(self, msg: str):
+        self._btn_whole_flash.setEnabled(True)
+        self._btn_read.setEnabled(True)
+        self.sig_log.emit(f"[ERROR] Flash info failed: {msg}")
 
     def _do_read(self):
         if self._read_worker and self._read_worker.isRunning():
