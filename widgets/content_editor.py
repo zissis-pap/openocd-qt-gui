@@ -32,24 +32,33 @@ _HEADERS   = ["Address", "Name", "Size (bytes)", "Data (hex)", "Current Value"]
 def _format_value(raw: bytes) -> str:
     """Format raw bytes for display in the Current Value column.
 
-    • 1–4 bytes: numeric (decimal if ≤ 65535, else hex) plus quoted ASCII
-      when at least one byte is printable.
+    • 1–4 bytes: zero-padded hex (0xNN…) matching the variable width,
+      plus quoted ASCII when at least one byte is printable.
+      Data type: little-endian unsigned integer, hex representation.
     • >4 bytes: quoted ASCII string ('.' for non-printable bytes); falls back
-      to a space-separated hex dump when no byte is printable.
+      to a space-separated hex byte dump when no byte is printable.
     """
     has_printable = any(0x20 <= b <= 0x7E for b in raw)
     ascii_ = "".join(chr(b) if 0x20 <= b <= 0x7E else "." for b in raw)
 
     if len(raw) <= 4:
         val     = int.from_bytes(raw, "little")
-        numeric = str(val) if val <= 65535 else hex(val)
+        hex_str = f"0x{val:0{len(raw) * 2}X}"
         if has_printable:
-            return f'{numeric}  "{ascii_}"'
-        return numeric
+            return f'{hex_str}  "{ascii_}"'
+        return hex_str
     else:
         if has_printable:
             return f'"{ascii_}"'
         return " ".join(f"{b:02X}" for b in raw)
+
+
+def _format_data(raw: bytes) -> str:
+    """Format raw bytes as a zero-padded hex string for the Data column."""
+    if len(raw) <= 8:
+        val = int.from_bytes(raw, "little")
+        return f"0x{val:0{len(raw) * 2}X}"
+    return " ".join(f"{b:02X}" for b in raw)
 
 
 def _parse_data(data_str: str, size: int) -> bytes:
@@ -106,6 +115,11 @@ class ContentEditorWorker(QThread):
         except Exception as e:
             self.finished.emit(False, str(e))
 
+    @staticmethod
+    def _check_resp(resp: str, context: str):
+        if any(k in resp.lower() for k in ("error", "failed", "fault")):
+            raise RuntimeError(f"{context} failed: {resp.strip()}")
+
     def _do_store(self):
         with SyncClient(self._host, self._port) as client:
             client.send("halt")
@@ -124,14 +138,14 @@ class ContentEditorWorker(QThread):
             # Discover flash layout once
             info = client.send("flash info 0")
 
-            # Collect all sectors that need touching
+            # Collect only the sectors that contain modified bytes
             sectors: dict[int, int] = {}   # {sec_start: sec_size}
             for byte_addr in patch_map:
                 sec_start, sec_size = _find_sector(info, byte_addr)
                 sectors[sec_start] = sec_size
 
-            total   = len(sectors)
-            done    = 0
+            total = len(sectors)
+            done  = 0
 
             for sec_start, sec_size in sorted(sectors.items()):
                 self.log.emit(
@@ -150,35 +164,37 @@ class ContentEditorWorker(QThread):
                     read_addr += n * 4
                     remaining -= n
 
-                # Trim to exact sector size in case of rounding
                 raw = raw[:sec_size]
 
-                # ── 2. Patch bytes ───────────────────────────────────────
+                if len(raw) != sec_size:
+                    raise RuntimeError(
+                        f"Sector read at 0x{sec_start:08x} returned "
+                        f"{len(raw)} bytes, expected {sec_size}"
+                    )
+
+                # ── 2. Patch only the bytes belonging to this sector ─────
                 for byte_addr, new_byte in patch_map.items():
                     if sec_start <= byte_addr < sec_start + sec_size:
                         raw[byte_addr - sec_start] = new_byte
 
-                # ── 3. Erase ─────────────────────────────────────────────
-                self.log.emit(f"[INFO] Erasing 0x{sec_start:08x}…")
-                client.send(
-                    f"flash erase_address pad 0x{sec_start:08x} 0x{sec_size:x}"
-                )
-
-                # ── 4. Write back ────────────────────────────────────────
-                self.log.emit(f"[INFO] Writing 0x{sec_start:08x}…")
+                # ── 3. Write back (erase handled by write_image erase) ───
+                self.log.emit(f"[INFO] Programming 0x{sec_start:08x}…")
                 with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
                     f.write(bytes(raw))
                     tmp = f.name
                 try:
-                    client.send(
-                        f'flash write_image "{tmp}" 0x{sec_start:08x} bin'
+                    resp = client.send(
+                        f'flash write_image erase "{tmp}" 0x{sec_start:08x} bin'
                     )
+                    if resp:
+                        self.log.emit(f"[DBG] {resp.strip()}")
+                    self._check_resp(resp, f"flash write_image at 0x{sec_start:08x}")
                 finally:
                     os.unlink(tmp)
 
                 done += 1
                 self.progress.emit(int(done / total * 100))
-                self.log.emit(f"[INFO] Sector 0x{sec_start:08x} stored.")
+                self.log.emit(f"[INFO] Sector 0x{sec_start:08x} done.")
 
             var_count = len(self._variables)
             self.finished.emit(
@@ -276,6 +292,7 @@ class ContentEditorWidget(QWidget):
         self._table.setAlternatingRowColors(True)
         self._table.setMinimumHeight(120)
         self._table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._table.cellChanged.connect(self._on_cell_changed)
         tbl_vbox.addWidget(self._table)
 
         # Add / Remove / Save / Load row buttons
@@ -369,6 +386,31 @@ class ContentEditorWidget(QWidget):
         )
         for row in rows:
             self._table.removeRow(row)
+
+    def _on_cell_changed(self, row: int, col: int):
+        if col in (_COL_SIZE, _COL_DATA):
+            self._reformat_data_cell(row)
+
+    def _reformat_data_cell(self, row: int):
+        """Parse Size + Data for the given row and rewrite Data as a
+        zero-padded hex string matching the variable width."""
+        size_item = self._table.item(row, _COL_SIZE)
+        data_item = self._table.item(row, _COL_DATA)
+        if not size_item or not data_item:
+            return
+        try:
+            size = int(size_item.text().strip(), 0)
+            if size <= 0:
+                return
+            raw = _parse_data(data_item.text().strip(), size)
+        except Exception:
+            return   # leave as-is if either field is not yet valid
+        formatted = _format_data(raw)
+        if formatted == data_item.text():
+            return   # already correct — avoid triggering cellChanged again
+        self._table.blockSignals(True)
+        data_item.setText(formatted)
+        self._table.blockSignals(False)
 
     # ------------------------------------------------------------------
     # Current Value column helpers
@@ -487,6 +529,9 @@ class ContentEditorWidget(QWidget):
                 )
                 self._table.setItem(row, col, item)
             self._table.setItem(row, _COL_CURR, self._make_curr_item("—"))
+
+        for row in range(self._table.rowCount()):
+            self._reformat_data_cell(row)
 
         self.sig_log.emit(
             f"[INFO] Loaded {len(rows)} variable(s) from {path}"
