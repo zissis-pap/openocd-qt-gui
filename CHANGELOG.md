@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.033] - 2026-04-02
+### Changed
+- **Content Editor: merged Data columns** — removed separate "Data (target)" column; the single editable **Data** column now shows the current flash value (blue) and highlights edits in green when the value differs from what was read from flash
+- **Content Editor: only modified variables are written** — Store skips rows whose Data cell matches the flash baseline, preventing unnecessary sector erases on unmodified pages
+- **Content Editor: `reset halt` before flash write** — replaced plain `halt` with `reset halt` to tear down any stale flash programming algorithm left by a previous failed write (fixes "Target is already running an algorithm" on STM32L4)
+- **Content Editor: `_parse_data` annotation stripping** — strips trailing ASCII annotation (e.g. `55  "7"`) before numeric parsing, fixing store errors for variables displayed in Default/Decimal/Hex format with printable ASCII suffixes
+- **Content Editor: Default format for Data** — format selector now defaults to "Default" (Decimal ≤2 bytes, Hex 3–4 bytes, ASCII >4 bytes); format switching preserves edited (green) values by reformatting from their parsed bytes
+
 ## [0.032] - 2026-04-02
 ### Added
 - **Variable counter column** — a read-only `#` column to the left of Address auto-numbers each row; updated on add/remove

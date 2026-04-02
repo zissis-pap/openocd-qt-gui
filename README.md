@@ -7,7 +7,7 @@
 [![QDarkStyle](https://img.shields.io/badge/qdarkstyle-optional-555555)](https://github.com/ColinDuquesnoy/QDarkStyleSheet)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/zissis-pap/openocd-qt-gui)
 [![STM32](https://img.shields.io/badge/target-STM32-03234B?logo=stmicroelectronics&logoColor=white)](https://www.st.com/en/microcontrollers-microprocessors/stm32-32-bit-arm-cortex-mcus.html)
-[![Version](https://img.shields.io/badge/version-0.032-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.033-informational)](CHANGELOG.md)
 
 A **PyQt5 graphical frontend** for the [OpenOCD](https://openocd.org/) on-chip debugger.
 It lets you start/stop the OpenOCD server, flash firmware, inspect memory, and run

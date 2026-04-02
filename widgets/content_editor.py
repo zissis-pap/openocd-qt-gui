@@ -20,31 +20,46 @@ from mcu_config import DEFAULT_FLASH_BASE
 from widgets.memory_viewer import _parse_mdw, _find_sector
 
 
-_COL_NUM   = 0
-_COL_ADDR  = 1
-_COL_NAME  = 2
-_COL_SIZE  = 3
-_COL_DATA  = 4
-_COL_CURR  = 5
-_NUM_COLS  = 6
-_HEADERS   = ["#", "Address", "Name", "Size (bytes)", "Data", "Current Value"]
+_COL_NUM  = 0
+_COL_ADDR = 1
+_COL_NAME = 2
+_COL_SIZE = 3
+_COL_DATA = 4
+_NUM_COLS = 5
+_HEADERS  = ["#", "Address", "Name", "Size (bytes)", "Data"]
 
-_FMTS      = ("Hex", "Decimal", "ASCII")
+_DATA_FMTS = ("Default", "Hex", "Decimal", "ASCII")
+
+# Qt item data roles
+_ROLE_ORIGINAL = Qt.UserRole        # bytes: last value read from flash
+_ROLE_MODIFIED = Qt.UserRole + 1    # bytes: current parsed edit (for format switching)
+
+_COLOR_UNCHANGED = QColor("#88aaff")
+_COLOR_MODIFIED  = QColor("#66ff66")
+_COLOR_PLACEHOLDER = QColor("#888888")
 
 
 # ---------------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------------
 
-def _format_value(raw: bytes, fmt: str = "Hex") -> str:
-    """Format raw bytes for the Current Value column.
+def _format_value(raw: bytes, fmt: str = "Default") -> str:
+    """Format raw bytes for the Data column display.
 
-    fmt: 'Hex'     — 0x-prefixed, zero-padded to variable width (≤4 bytes);
-                     space-separated hex dump for larger variables.
-         'Decimal' — unsigned little-endian integer as decimal string.
-         'ASCII'   — quoted string; '.' substituted for non-printable bytes.
-    In Hex/Decimal mode, printable ASCII is appended in quotes when present.
+    'Default' — Decimal for 1-2 bytes, Hex for 3-4, ASCII for >4.
+    'Hex'     — 0x-prefixed, zero-padded; space-separated dump for >4 bytes.
+    'Decimal' — unsigned little-endian integer.
+    'ASCII'   — quoted string; '.' substituted for non-printable bytes.
     """
+    if fmt == "Default":
+        n = len(raw)
+        if n <= 2:
+            fmt = "Decimal"
+        elif n <= 4:
+            fmt = "Hex"
+        else:
+            fmt = "ASCII"
+
     has_printable = any(0x20 <= b <= 0x7E for b in raw)
     ascii_str = "".join(chr(b) if 0x20 <= b <= 0x7E else "." for b in raw)
 
@@ -58,7 +73,7 @@ def _format_value(raw: bytes, fmt: str = "Hex") -> str:
             return f"{val}{suffix}"
         return " ".join(str(b) for b in raw)
 
-    # Hex (default)
+    # Hex
     if len(raw) <= 4:
         val     = int.from_bytes(raw, "little")
         hex_str = f"0x{val:0{len(raw) * 2}X}"
@@ -69,31 +84,17 @@ def _format_value(raw: bytes, fmt: str = "Hex") -> str:
     return " ".join(f"{b:02X}" for b in raw)
 
 
-def _format_data(raw: bytes, fmt: str = "Hex") -> str:
-    """Format raw bytes for the Data column."""
-    if fmt == "ASCII":
-        return "".join(chr(b) if 0x20 <= b <= 0x7E else f"\\x{b:02x}" for b in raw)
-    if fmt == "Decimal":
-        if len(raw) <= 8:
-            return str(int.from_bytes(raw, "little"))
-        return " ".join(str(b) for b in raw)
-    # Hex
-    if len(raw) <= 8:
-        val = int.from_bytes(raw, "little")
-        return f"0x{val:0{len(raw) * 2}X}"
-    return " ".join(f"{b:02X}" for b in raw)
-
-
-def _parse_data(data_str: str, size: int, fmt: str = "Hex") -> bytes:
-    """Convert a user-entered data string to raw bytes.
-
-    fmt='ASCII': encode string directly as UTF-8 bytes.
-    fmt='Decimal': parse as plain decimal integer, little-endian.
-    fmt='Hex' or auto: try int literal (0x…/decimal), then hex bytes.
-    """
+def _parse_data(data_str: str, size: int, fmt: str = "Default") -> bytes:
+    """Convert a user-entered data string to raw bytes of exactly *size* bytes."""
     s = data_str.strip()
-    if not s:
-        raise ValueError("Empty data field")
+
+    # Quoted string → treat as ASCII regardless of fmt
+    if s.startswith('"') and s.endswith('"') and len(s) >= 2:
+        inner = s[1:-1]
+        raw = inner.encode("utf-8", errors="replace")
+        if len(raw) < size:
+            raw = raw + b"\x00" * (size - len(raw))
+        return raw[:size]
 
     if fmt == "ASCII":
         raw = s.encode("utf-8", errors="replace")
@@ -101,21 +102,28 @@ def _parse_data(data_str: str, size: int, fmt: str = "Hex") -> bytes:
             raw = raw + b"\x00" * (size - len(raw))
         return raw[:size]
 
-    # Hex / Decimal — try integer literal first (handles 0x, 0b, plain decimal)
+    if not s:
+        raise ValueError("Empty data field")
+
+    # Strip trailing ASCII annotation appended by _format_value (e.g. '55  "7"' → '55')
+    s_num = s.split('"')[0].strip() or s
+
+    # Integer literal (0x…, decimal)
     try:
-        val = int(s, 0)
+        val = int(s_num, 0)
         return val.to_bytes(size, "little")
     except (ValueError, OverflowError):
         pass
 
     # Space-separated hex bytes
-    parts = s.split()
+    parts = s_num.split()
     if len(parts) > 1:
         raw = bytes(int(p, 16) for p in parts)
     else:
-        if len(s) % 2:
-            s = "0" + s
-        raw = bytes.fromhex(s)
+        p = s_num
+        if len(p) % 2:
+            p = "0" + p
+        raw = bytes.fromhex(p)
 
     if len(raw) < size:
         raw = raw + b"\x00" * (size - len(raw))
@@ -151,8 +159,8 @@ class ContentEditorWorker(QThread):
 
     def _do_store(self):
         with SyncClient(self._host, self._port) as client:
-            client.send("halt")
-            self.log.emit("[INFO] Target halted")
+            client.send("reset halt")
+            self.log.emit("[INFO] Target reset and halted")
 
             patch_map: dict[int, int] = {}
             for addr, name, size, data in self._variables:
@@ -298,23 +306,14 @@ class ContentEditorWidget(QWidget):
         tbl_vbox = QVBoxLayout(tbl_grp)
         tbl_vbox.setSpacing(4)
 
-        # Format selectors row
+        # Format selector row
         fmt_row = QHBoxLayout()
         fmt_row.addWidget(QLabel("Data format:"))
         self._fmt_data_combo = QComboBox()
-        self._fmt_data_combo.addItems(_FMTS)
+        self._fmt_data_combo.addItems(_DATA_FMTS)
         self._fmt_data_combo.setFixedWidth(90)
         self._fmt_data_combo.currentTextChanged.connect(self._on_data_fmt_changed)
         fmt_row.addWidget(self._fmt_data_combo)
-
-        fmt_row.addSpacing(20)
-
-        fmt_row.addWidget(QLabel("Current Value format:"))
-        self._fmt_curr_combo = QComboBox()
-        self._fmt_curr_combo.addItems(_FMTS)
-        self._fmt_curr_combo.setFixedWidth(90)
-        self._fmt_curr_combo.currentTextChanged.connect(self._on_curr_fmt_changed)
-        fmt_row.addWidget(self._fmt_curr_combo)
         fmt_row.addStretch()
         tbl_vbox.addLayout(fmt_row)
 
@@ -329,7 +328,6 @@ class ContentEditorWidget(QWidget):
         hdr.setSectionResizeMode(_COL_NAME, QHeaderView.Stretch)
         hdr.setSectionResizeMode(_COL_SIZE, QHeaderView.ResizeToContents)
         hdr.setSectionResizeMode(_COL_DATA, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(_COL_CURR, QHeaderView.ResizeToContents)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.setAlternatingRowColors(True)
@@ -414,22 +412,23 @@ class ContentEditorWidget(QWidget):
         item = QTableWidgetItem(str(n))
         item.setFlags(Qt.ItemIsEnabled)
         item.setTextAlignment(Qt.AlignCenter)
-        item.setForeground(QColor("#888888"))
+        item.setForeground(_COLOR_PLACEHOLDER)
         return item
 
-    def _make_curr_item(self, raw_or_placeholder) -> QTableWidgetItem:
-        """raw_or_placeholder: bytes → formatted value; str → shown as-is."""
-        if isinstance(raw_or_placeholder, bytes):
-            fmt  = self._fmt_curr_combo.currentText()
-            text = _format_value(raw_or_placeholder, fmt)
-        else:
-            text = raw_or_placeholder
+    def _make_data_item(self, raw: bytes) -> QTableWidgetItem:
+        """Create an editable Data cell pre-populated with the flash value."""
+        fmt  = self._fmt_data_combo.currentText()
+        text = _format_value(raw, fmt)
         item = QTableWidgetItem(text)
-        item.setFlags(Qt.ItemIsEnabled)
         item.setTextAlignment(Qt.AlignCenter)
-        item.setForeground(QColor("#88aaff"))
-        if isinstance(raw_or_placeholder, bytes):
-            item.setData(Qt.UserRole, raw_or_placeholder)  # store for reformatting
+        item.setForeground(_COLOR_UNCHANGED)
+        item.setData(_ROLE_ORIGINAL, raw)
+        return item
+
+    def _make_placeholder_item(self, text: str = "—") -> QTableWidgetItem:
+        item = QTableWidgetItem(text)
+        item.setTextAlignment(Qt.AlignCenter)
+        item.setForeground(_COLOR_PLACEHOLDER)
         return item
 
     def _add_row(self):
@@ -437,21 +436,18 @@ class ContentEditorWidget(QWidget):
         row = self._table.rowCount()
         self._table.insertRow(row)
         self._table.setItem(row, _COL_NUM, self._make_num_item(row + 1))
-        defaults = {
-            _COL_ADDR: hex(DEFAULT_FLASH_BASE),
-            _COL_NAME: "",
-            _COL_SIZE: "4",
-            _COL_DATA: _format_data(b"\x00\x00\x00\x00",
-                                    self._fmt_data_combo.currentText()),
-        }
-        for col, text in defaults.items():
+        for col, text in (
+            (_COL_ADDR, hex(DEFAULT_FLASH_BASE)),
+            (_COL_NAME, ""),
+            (_COL_SIZE, "4"),
+        ):
             item = QTableWidgetItem(text)
             item.setTextAlignment(
                 Qt.AlignLeft | Qt.AlignVCenter if col == _COL_NAME
                 else Qt.AlignCenter
             )
             self._table.setItem(row, col, item)
-        self._table.setItem(row, _COL_CURR, self._make_curr_item("—"))
+        self._table.setItem(row, _COL_DATA, self._make_placeholder_item())
         self._table.blockSignals(False)
 
     def _remove_row(self):
@@ -473,46 +469,64 @@ class ContentEditorWidget(QWidget):
             else:
                 self._table.setItem(row, _COL_NUM, self._make_num_item(row + 1))
 
-    def _on_cell_changed(self, row: int, col: int):
-        if col in (_COL_SIZE, _COL_DATA):
-            self._reformat_data_cell(row)
+    # ------------------------------------------------------------------
+    # Cell change / format handling
+    # ------------------------------------------------------------------
 
-    def _reformat_data_cell(self, row: int):
+    def _on_cell_changed(self, row: int, col: int):
+        if col == _COL_DATA:
+            self._check_data_modified(row)
+
+    def _check_data_modified(self, row: int):
+        """Compare current cell text to original flash value; update colour."""
+        item = self._table.item(row, _COL_DATA)
+        if not item:
+            return
+        original = item.data(_ROLE_ORIGINAL)
+        if not isinstance(original, (bytes, bytearray)):
+            return  # no flash baseline → nothing to compare
+
         size_item = self._table.item(row, _COL_SIZE)
-        data_item = self._table.item(row, _COL_DATA)
-        if not size_item or not data_item:
+        if not size_item:
             return
         try:
             size = int(size_item.text().strip(), 0)
-            if size <= 0:
-                return
-            fmt = self._fmt_data_combo.currentText()
-            raw = _parse_data(data_item.text().strip(), size, fmt)
+            fmt  = self._fmt_data_combo.currentText()
+            current_raw = _parse_data(item.text().strip(), size, fmt)
         except Exception:
             return
-        formatted = _format_data(raw, fmt)
-        if formatted == data_item.text():
-            return
+
         self._table.blockSignals(True)
-        data_item.setText(formatted)
+        if current_raw != bytes(original)[:size]:
+            item.setForeground(_COLOR_MODIFIED)
+            item.setData(_ROLE_MODIFIED, current_raw)
+        else:
+            item.setForeground(_COLOR_UNCHANGED)
+            item.setData(_ROLE_MODIFIED, None)
         self._table.blockSignals(False)
 
     def _on_data_fmt_changed(self, fmt: str):
-        for row in range(self._table.rowCount()):
-            self._reformat_data_cell(row)
-
-    def _on_curr_fmt_changed(self, fmt: str):
+        """Reformat all Data cells when the format selector changes."""
         self._table.blockSignals(True)
         for row in range(self._table.rowCount()):
-            item = self._table.item(row, _COL_CURR)
-            if item:
-                raw = item.data(Qt.UserRole)
-                if isinstance(raw, (bytes, bytearray)):
-                    item.setText(_format_value(bytes(raw), fmt))
+            item = self._table.item(row, _COL_DATA)
+            if not item:
+                continue
+            original = item.data(_ROLE_ORIGINAL)
+            if not isinstance(original, (bytes, bytearray)):
+                continue
+            # Use modified bytes if the cell was edited, else original
+            modified = item.data(_ROLE_MODIFIED)
+            raw_to_show = modified if isinstance(modified, (bytes, bytearray)) else original
+            item.setText(_format_value(bytes(raw_to_show), fmt))
+            if isinstance(modified, (bytes, bytearray)) and modified != bytes(original):
+                item.setForeground(_COLOR_MODIFIED)
+            else:
+                item.setForeground(_COLOR_UNCHANGED)
         self._table.blockSignals(False)
 
     # ------------------------------------------------------------------
-    # Current Value read
+    # Flash read
     # ------------------------------------------------------------------
 
     def _do_read_current(self):
@@ -529,10 +543,12 @@ class ContentEditorWidget(QWidget):
                 if size <= 0:
                     raise ValueError
             except ValueError:
-                self._table.setItem(row, _COL_CURR, self._make_curr_item("err"))
+                self._table.setItem(row, _COL_DATA,
+                                    self._make_placeholder_item("err"))
                 continue
             specs.append((row, addr, size))
-            self._table.setItem(row, _COL_CURR, self._make_curr_item("…"))
+            self._table.setItem(row, _COL_DATA,
+                                self._make_placeholder_item("…"))
 
         if not specs:
             self.sig_log.emit("[WARN] No valid variables to read.")
@@ -548,7 +564,7 @@ class ContentEditorWidget(QWidget):
         self._read_worker.start()
 
     def _on_value_ready(self, row: int, raw: bytes):
-        self._table.setItem(row, _COL_CURR, self._make_curr_item(raw))
+        self._table.setItem(row, _COL_DATA, self._make_data_item(raw))
 
     def _on_read_finished(self, ok: bool, msg: str):
         self._btn_read_current.setEnabled(True)
@@ -611,7 +627,6 @@ class ContentEditorWidget(QWidget):
 
         self._table.blockSignals(True)
         self._table.setRowCount(0)
-        fmt = self._fmt_data_combo.currentText()
         for n, entry in enumerate(rows, start=1):
             row = self._table.rowCount()
             self._table.insertRow(row)
@@ -620,7 +635,6 @@ class ContentEditorWidget(QWidget):
                 (_COL_ADDR, "address"),
                 (_COL_NAME, "name"),
                 (_COL_SIZE, "size"),
-                (_COL_DATA, "data"),
             ):
                 text = str(entry.get(key, ""))
                 item = QTableWidgetItem(text)
@@ -629,14 +643,11 @@ class ContentEditorWidget(QWidget):
                     else Qt.AlignCenter
                 )
                 self._table.setItem(row, col, item)
-            self._table.setItem(row, _COL_CURR, self._make_curr_item("—"))
+            self._table.setItem(row, _COL_DATA, self._make_placeholder_item())
         self._table.blockSignals(False)
 
-        for row in range(self._table.rowCount()):
-            self._reformat_data_cell(row)
-
         self.sig_log.emit(f"[INFO] Loaded {len(rows)} variable(s) from {path}")
-        self._do_read_current()   # auto-read flash contents after loading
+        self._do_read_current()   # populate Data with current flash contents
 
     # ------------------------------------------------------------------
     # Store
@@ -664,6 +675,16 @@ class ContentEditorWidget(QWidget):
             name_str = (name_item.text().strip() if name_item else "") or f"var_{row + 1}"
             size_str = size_item.text().strip()
             data_str = data_item.text().strip()
+
+            if data_str in ("—", "…", "err", ""):
+                errors.append(f"Row {row + 1}: no data value (read flash first)")
+                continue
+
+            # Skip rows that have a flash baseline but are unchanged (blue cells)
+            original = data_item.data(_ROLE_ORIGINAL)
+            modified = data_item.data(_ROLE_MODIFIED)
+            if isinstance(original, (bytes, bytearray)) and not isinstance(modified, (bytes, bytearray)):
+                continue  # value matches flash — nothing to write
 
             try:
                 addr = int(addr_str, 0)
@@ -695,7 +716,7 @@ class ContentEditorWidget(QWidget):
             return
 
         if not variables:
-            self.sig_log.emit("[WARN] No variables defined.")
+            self.sig_log.emit("[WARN] No modified variables to write. Edit a value (green) before storing.")
             return
 
         self._progress.setValue(0)
@@ -718,7 +739,7 @@ class ContentEditorWidget(QWidget):
             self.sig_log.emit(f"[INFO] {msg}")
             self._status_label.setText(msg)
             self._status_label.setStyleSheet("padding: 0 8px; color: #66ff66;")
-            self._do_read_current()
+            self._do_read_current()   # re-read to confirm write and clear green
         else:
             self.sig_log.emit(f"[ERROR] {msg}")
             self._status_label.setText(f"Failed: {msg}")
