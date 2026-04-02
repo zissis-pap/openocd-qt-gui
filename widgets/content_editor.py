@@ -8,9 +8,9 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QTableWidget, QTableWidgetItem,
     QHeaderView, QGroupBox, QProgressBar, QSizePolicy,
-    QFileDialog, QMessageBox
+    QFileDialog, QMessageBox, QSplitter
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QThread
+from PyQt5.QtCore import Qt, pyqtSignal, QThread, QSize
 from PyQt5.QtGui import QFont, QColor
 
 from openocd_client import SyncClient
@@ -252,6 +252,9 @@ class ContentEditorWidget(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
+        splitter = QSplitter(Qt.Vertical)
+        splitter.setChildrenCollapsible(False)
+
         # ── Variable table ───────────────────────────────────────────────
         tbl_grp = QGroupBox("Variables")
         tbl_vbox = QVBoxLayout(tbl_grp)
@@ -271,7 +274,8 @@ class ContentEditorWidget(QWidget):
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.setAlternatingRowColors(True)
-        self._table.setMinimumHeight(200)
+        self._table.setMinimumHeight(120)
+        self._table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         tbl_vbox.addWidget(self._table)
 
         # Add / Remove / Save / Load row buttons
@@ -299,10 +303,11 @@ class ContentEditorWidget(QWidget):
         row_btn_row.addWidget(self._btn_remove)
         tbl_vbox.addLayout(row_btn_row)
 
-        layout.addWidget(tbl_grp)
+        splitter.addWidget(tbl_grp)
 
         # ── Store controls ───────────────────────────────────────────────
         store_grp = QGroupBox("Store to Flash")
+        store_grp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         store_vbox = QVBoxLayout(store_grp)
         store_vbox.setSpacing(6)
 
@@ -334,8 +339,14 @@ class ContentEditorWidget(QWidget):
         bottom_row.addWidget(self._status_label)
         store_vbox.addLayout(bottom_row)
 
-        layout.addWidget(store_grp)
-        layout.addStretch()
+        splitter.addWidget(store_grp)
+
+        # Give the table most of the space; store panel gets just enough for its contents
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setSizes([500, 120])
+
+        layout.addWidget(splitter)
 
     # ------------------------------------------------------------------
     # Table helpers

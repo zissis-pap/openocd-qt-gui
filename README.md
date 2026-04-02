@@ -7,7 +7,7 @@
 [![QDarkStyle](https://img.shields.io/badge/qdarkstyle-optional-555555)](https://github.com/ColinDuquesnoy/QDarkStyleSheet)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/zissis-pap/openocd-qt-gui)
 [![STM32](https://img.shields.io/badge/target-STM32-03234B?logo=stmicroelectronics&logoColor=white)](https://www.st.com/en/microcontrollers-microprocessors/stm32-32-bit-arm-cortex-mcus.html)
-[![Version](https://img.shields.io/badge/version-0.029-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.030-informational)](CHANGELOG.md)
 
 A **PyQt5 graphical frontend** for the [OpenOCD](https://openocd.org/) on-chip debugger.
 It lets you start/stop the OpenOCD server, flash firmware, inspect memory, and run
@@ -28,7 +28,7 @@ TCL scripts — all without touching a terminal.
 | **Flash operations** | Halt · Erase · Program · Verify · Reset & Run · Read (dump) flash |
 | **Memory viewer** | Live hex dump with flash-safe inline write-back, optional auto-refresh, one-click whole-flash read, and progress bar during reads |
 | **Verify tab** | Side-by-side byte comparison of flash vs firmware; green/amber cell colouring |
-| **Content Editor** | Named variable table; read-modify-erase-write individual flash variables; displays current flash values with ASCII preview; save/load variable sets to file |
+| **Content Editor** | Named variable table with resizable splitter layout; read-modify-erase-write individual flash variables; displays current flash values with ASCII preview; save/load variable sets to file |
 | **Script console** | Interactive TCL prompt with command history + multi-line script editor |
 | **Live log** | Scrollable, colour-coded output panel; exportable to file |
 | **Dark theme** | Automatic via `qdarkstyle`; graceful fallback palette if not installed |

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.030] - 2026-04-02
+### Changed
+- **Content Editor layout** — the Variables table and Store panel are now separated by
+  a vertical splitter; drag the handle to resize either section; the table expands with
+  the window while the store panel stays compact; neither panel can be collapsed to zero
+
 ## [0.029] - 2026-04-02
 ### Added
 - **Stop external OpenOCD** — when an already-running OpenOCD instance is detected at
