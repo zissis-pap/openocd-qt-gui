@@ -7,7 +7,7 @@
 [![QDarkStyle](https://img.shields.io/badge/qdarkstyle-optional-555555)](https://github.com/ColinDuquesnoy/QDarkStyleSheet)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/zissis-pap/openocd-qt-gui)
 [![STM32](https://img.shields.io/badge/target-STM32-03234B?logo=stmicroelectronics&logoColor=white)](https://www.st.com/en/microcontrollers-microprocessors/stm32-32-bit-arm-cortex-mcus.html)
-[![Version](https://img.shields.io/badge/version-0.030-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.032-informational)](CHANGELOG.md)
 
 A **PyQt5 graphical frontend** for the [OpenOCD](https://openocd.org/) on-chip debugger.
 It lets you start/stop the OpenOCD server, flash firmware, inspect memory, and run
@@ -286,31 +286,40 @@ Each row in the table represents one variable:
 
 | Column | Description |
 |---|---|
+| **#** | Row counter (read-only; auto-updated on add/remove) |
 | **Address** | Flash address in hex (e.g. `0x08001000`) |
 | **Name** | Human-readable label |
 | **Size (bytes)** | Number of bytes the variable occupies |
-| **Data (hex)** | Value to write — see accepted formats below |
+| **Data** | Value to write — format controlled by the **Data format** selector |
 | **Current Value** | Value currently stored in flash (read-only; refreshed on demand) |
 
-**Accepted data formats:**
+**Format selectors** above the table control how Data and Current Value are displayed:
+
+| Selector | Hex | Decimal | ASCII |
+|---|---|---|---|
+| **Data format** | `0xDEADBEEF` (zero-padded) | `3735928559` | `Hello\x00…` |
+| **Current Value format** | `0x0001  "…"` | `1` | `"Hello."` |
+
+Switching the format reformats all existing cells immediately without re-reading flash.
+
+**Accepted data entry (any format):**
 
 | Input | Interpretation |
 |---|---|
 | `0xDEADBEEF` | Integer literal, stored little-endian |
 | `3000` | Decimal integer, stored little-endian |
 | `DE AD BE EF` | Space-separated hex bytes, stored in order |
-| `DEADBEEF` | Continuous hex string, stored in order |
-
-For string variables, enter the bytes as space-separated hex (e.g. `48 65 6C 6C 6F 00`).
+| `Hello` | ASCII text (in ASCII format mode) |
 
 #### Reading current values
 
 Click **Read Values** to read every variable's current content from flash.
-The **Current Value** column shows:
-- A decimal number for values ≤ 65 535
-- A hex number for larger numeric values
-- A quoted ASCII string for variables > 4 bytes (e.g. `"Hello."`)
-- A space-separated hex dump when no bytes are printable
+The display format is controlled by the **Current Value format** selector:
+- **Hex** — zero-padded hex integer; ASCII appended in quotes when printable
+- **Decimal** — unsigned little-endian integer
+- **ASCII** — quoted string with `.` for non-printable bytes
+
+Loading a `.varset` file automatically triggers a flash read so Current Value is populated immediately.
 
 #### Writing to flash
 

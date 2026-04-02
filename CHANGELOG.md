@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.032] - 2026-04-02
+### Added
+- **Variable counter column** — a read-only `#` column to the left of Address auto-numbers each row; updated on add/remove
+- **Data format selector** — `QComboBox` (Hex / Decimal / ASCII) above the variable table; switching reformats all Data cells without losing values
+- **Current Value format selector** — matching `QComboBox`; switching reformats existing Current Value cells using stored raw bytes without re-reading flash
+- **Auto-read on Load Set** — loading a `.varset` file now automatically triggers a flash read so Current Value is populated immediately
+
+## [0.031] - 2026-04-02
+### Added
+- **Data column auto-formatting** — Data (hex) field is automatically reformatted to a
+  zero-padded hex string matching the variable's byte width whenever Size or Data is
+  edited (e.g. size=4 → `0xDEADBEEF`); same reformatting applies after Load Set
+- **Consistent Current Value format** — Current Value now always displays as a
+  zero-padded hex integer matching the variable width (little-endian unsigned), plus
+  quoted ASCII when printable; for variables >4 bytes the ASCII string is shown, falling
+  back to a space-separated hex dump
+
+### Fixed
+- **Content Editor Store** — replaced separate `flash erase_address` + `flash write_image`
+  with the atomic `flash write_image erase` command; added response error checking and
+  a read-size guard to detect truncated sector reads before writing
+
 ## [0.030] - 2026-04-02
 ### Changed
 - **Content Editor layout** — the Variables table and Store panel are now separated by
