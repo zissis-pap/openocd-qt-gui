@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.034] - 2026-04-02
+### Changed
+- **Content Editor: whole-row green highlight** — when a variable's Data value differs from flash, the entire row is highlighted green (not just the Data cell); reverts to alternating colours after a re-read or successful store
+- **Content Editor: manual alternating row colours** — unedited rows alternate between two subtle blue-tinted shades (`#1e1e28` / `#26263a`) for easier reading; parity is recalculated automatically after row add/remove
+- **Content Editor: Store to Flash panel** — moved outside the splitter so it is always anchored at the bottom and cannot overlap the resize handle
+- **Content Editor: auto-append file extension on Save Set** — the extension matching the selected file-type filter (`.varset`, `.json`) is appended to the filename automatically if not already present
+
 ## [0.033] - 2026-04-02
 ### Changed
 - **Content Editor: merged Data columns** — removed separate "Data (target)" column; the single editable **Data** column now shows the current flash value (blue) and highlights edits in green when the value differs from what was read from flash

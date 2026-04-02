@@ -1,6 +1,7 @@
 """Content Editor widget — read-modify-erase-write flash variables."""
 
 import os
+import re
 import json
 import tempfile
 import struct
@@ -11,7 +12,7 @@ from PyQt5.QtWidgets import (
     QFileDialog, QMessageBox, QSplitter, QComboBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QThread
-from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtGui import QFont, QColor, QBrush
 
 from openocd_client import SyncClient
 from mcu_config import DEFAULT_FLASH_BASE
@@ -34,9 +35,12 @@ _DATA_FMTS = ("Default", "Hex", "Decimal", "ASCII")
 _ROLE_ORIGINAL = Qt.UserRole        # bytes: last value read from flash
 _ROLE_MODIFIED = Qt.UserRole + 1    # bytes: current parsed edit (for format switching)
 
-_COLOR_UNCHANGED = QColor("#88aaff")
-_COLOR_MODIFIED  = QColor("#66ff66")
-_COLOR_PLACEHOLDER = QColor("#888888")
+_COLOR_UNCHANGED    = QColor("#88aaff")
+_COLOR_MODIFIED     = QColor("#66ff66")
+_COLOR_PLACEHOLDER  = QColor("#888888")
+_COLOR_MODIFIED_BG  = QColor("#1a3a1a")
+_COLOR_ROW_EVEN     = QColor("#1e1e28")
+_COLOR_ROW_ODD      = QColor("#26263a")
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +334,7 @@ class ContentEditorWidget(QWidget):
         hdr.setSectionResizeMode(_COL_DATA, QHeaderView.Stretch)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
-        self._table.setAlternatingRowColors(True)
+        self._table.setAlternatingRowColors(False)   # managed manually
         self._table.setMinimumHeight(120)
         self._table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._table.cellChanged.connect(self._on_cell_changed)
@@ -363,9 +367,11 @@ class ContentEditorWidget(QWidget):
 
         splitter.addWidget(tbl_grp)
 
-        # ── Store controls ───────────────────────────────────────────────
+        layout.addWidget(splitter, 1)   # splitter takes all available stretch
+
+        # ── Store controls (outside splitter — no overlap with resize handle) ──
         store_grp = QGroupBox("Store to Flash")
-        store_grp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        store_grp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         store_vbox = QVBoxLayout(store_grp)
         store_vbox.setSpacing(6)
 
@@ -397,12 +403,7 @@ class ContentEditorWidget(QWidget):
         ctrl_row.addWidget(self._status_label)
         store_vbox.addLayout(ctrl_row)
 
-        splitter.addWidget(store_grp)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
-        splitter.setSizes([500, 120])
-
-        layout.addWidget(splitter)
+        layout.addWidget(store_grp, 0)  # fixed height, always at bottom
 
     # ------------------------------------------------------------------
     # Table helpers
@@ -449,6 +450,7 @@ class ContentEditorWidget(QWidget):
             self._table.setItem(row, col, item)
         self._table.setItem(row, _COL_DATA, self._make_placeholder_item())
         self._table.blockSignals(False)
+        self._set_row_highlight(row, False)
 
     def _remove_row(self):
         rows = sorted(
@@ -460,6 +462,7 @@ class ContentEditorWidget(QWidget):
             self._table.removeRow(row)
         self._renumber_rows()
         self._table.blockSignals(False)
+        self._refresh_all_highlights()
 
     def _renumber_rows(self):
         for row in range(self._table.rowCount()):
@@ -467,7 +470,34 @@ class ContentEditorWidget(QWidget):
             if item:
                 item.setText(str(row + 1))
             else:
-                self._table.setItem(row, _COL_NUM, self._make_num_item(row + 1))
+                new_item = self._make_num_item(row + 1)
+                if self._is_row_modified(row):
+                    new_item.setBackground(_COLOR_MODIFIED_BG)
+                self._table.setItem(row, _COL_NUM, new_item)
+
+    def _is_row_modified(self, row: int) -> bool:
+        item = self._table.item(row, _COL_DATA)
+        if not item:
+            return False
+        return isinstance(item.data(_ROLE_ORIGINAL), (bytes, bytearray)) and \
+               isinstance(item.data(_ROLE_MODIFIED), (bytes, bytearray))
+
+    def _set_row_highlight(self, row: int, modified: bool):
+        was_blocked = self._table.signalsBlocked()
+        self._table.blockSignals(True)
+        if modified:
+            bg = _COLOR_MODIFIED_BG
+        else:
+            bg = _COLOR_ROW_ODD if row % 2 else _COLOR_ROW_EVEN
+        for col in range(_NUM_COLS):
+            item = self._table.item(row, col)
+            if item:
+                item.setBackground(bg)
+        self._table.blockSignals(was_blocked)
+
+    def _refresh_all_highlights(self):
+        for row in range(self._table.rowCount()):
+            self._set_row_highlight(row, self._is_row_modified(row))
 
     # ------------------------------------------------------------------
     # Cell change / format handling
@@ -496,14 +526,18 @@ class ContentEditorWidget(QWidget):
         except Exception:
             return
 
+        was_blocked = self._table.signalsBlocked()
         self._table.blockSignals(True)
         if current_raw != bytes(original)[:size]:
             item.setForeground(_COLOR_MODIFIED)
             item.setData(_ROLE_MODIFIED, current_raw)
+            modified = True
         else:
             item.setForeground(_COLOR_UNCHANGED)
             item.setData(_ROLE_MODIFIED, None)
-        self._table.blockSignals(False)
+            modified = False
+        self._table.blockSignals(was_blocked)
+        self._set_row_highlight(row, modified)
 
     def _on_data_fmt_changed(self, fmt: str):
         """Reformat all Data cells when the format selector changes."""
@@ -524,6 +558,8 @@ class ContentEditorWidget(QWidget):
             else:
                 item.setForeground(_COLOR_UNCHANGED)
         self._table.blockSignals(False)
+        for row in range(self._table.rowCount()):
+            self._set_row_highlight(row, self._is_row_modified(row))
 
     # ------------------------------------------------------------------
     # Flash read
@@ -565,6 +601,7 @@ class ContentEditorWidget(QWidget):
 
     def _on_value_ready(self, row: int, raw: bytes):
         self._table.setItem(row, _COL_DATA, self._make_data_item(raw))
+        self._set_row_highlight(row, False)
 
     def _on_read_finished(self, ok: bool, msg: str):
         self._btn_read_current.setEnabled(True)
@@ -594,12 +631,18 @@ class ContentEditorWidget(QWidget):
         if self._table.rowCount() == 0:
             QMessageBox.information(self, "Save Set", "No variables to save.")
             return
-        path, _ = QFileDialog.getSaveFileName(
+        path, selected_filter = QFileDialog.getSaveFileName(
             self, "Save Variable Set", "",
             "Variable Set (*.varset);;JSON Files (*.json);;All Files (*)"
         )
         if not path:
             return
+        # Auto-append the selected extension if not already present
+        m = re.search(r'\*(\.\w+)', selected_filter)
+        if m:
+            ext = m.group(1)
+            if not path.lower().endswith(ext.lower()):
+                path += ext
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(self._collect_rows(), f, indent=2)
@@ -645,6 +688,7 @@ class ContentEditorWidget(QWidget):
                 self._table.setItem(row, col, item)
             self._table.setItem(row, _COL_DATA, self._make_placeholder_item())
         self._table.blockSignals(False)
+        self._refresh_all_highlights()
 
         self.sig_log.emit(f"[INFO] Loaded {len(rows)} variable(s) from {path}")
         self._do_read_current()   # populate Data with current flash contents
