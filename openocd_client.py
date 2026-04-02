@@ -123,6 +123,26 @@ class OpenOCDClient(QObject):
                 return result.strip()
 
 
+class OpenOCDProbeWorker(QThread):
+    """Probe whether OpenOCD's telnet port is already listening on startup."""
+    detected = pyqtSignal(str, int)   # (host, port) — emitted only on success
+
+    def __init__(self, host="localhost", port=4444):
+        super().__init__()
+        self._host = host
+        self._port = port
+
+    def run(self):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(1.0)
+            s.connect((self._host, self._port))
+            s.close()
+            self.detected.emit(self._host, self._port)
+        except Exception:
+            pass   # not running — silent
+
+
 class SyncClient:
     """Simple synchronous client for use in worker threads (FlashWorker, etc.)."""
 

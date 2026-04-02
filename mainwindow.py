@@ -7,11 +7,11 @@ from PyQt5.QtWidgets import (
     QTabWidget, QLabel, QAction, QFileDialog, QMessageBox,
     QStatusBar, QSizePolicy
 )
-from PyQt5.QtCore import Qt, QThread
+from PyQt5.QtCore import Qt, QThread, QTimer
 from PyQt5.QtGui import QIcon
 
 from openocd_manager import OpenOCDManager
-from openocd_client import OpenOCDClient
+from openocd_client import OpenOCDClient, OpenOCDProbeWorker
 from widgets.server_control import ServerControlWidget
 from widgets.mcu_selector import MCUSelectorWidget
 from widgets.flash_ops import FlashOpsWidget
@@ -39,6 +39,7 @@ class MainWindow(QMainWindow):
         self._setup_central()
         self._setup_statusbar()
         self._connect_signals()
+        QTimer.singleShot(300, self._probe_openocd)
 
     # ------------------------------------------------------------------
     # UI Construction
@@ -195,6 +196,21 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
+
+    def _probe_openocd(self):
+        port = self._server_ctrl.telnet_port
+        self._probe_worker = OpenOCDProbeWorker("localhost", port)
+        self._probe_worker.detected.connect(self._on_openocd_detected)
+        self._probe_worker.finished.connect(self._probe_worker.deleteLater)
+        self._probe_worker.start()
+
+    def _on_openocd_detected(self, host: str, port: int):
+        self._server_ctrl.on_openocd_detected()
+        self._log_widget.append_line(
+            f"[INFO] OpenOCD already running — telnet detected on {host}:{port}. "
+            "You can connect directly."
+        )
+        self.statusBar().showMessage(f"OpenOCD detected on port {port}")
 
     def _start_server(self, executable: str, interface_cfg: str, telnet_port: int, tcl_port: int):
         target_cfg = self._mcu_selector.target_config

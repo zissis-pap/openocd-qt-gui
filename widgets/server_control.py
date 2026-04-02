@@ -30,6 +30,12 @@ class StatusDot(QLabel):
         )
         self.setToolTip("Stopped")
 
+    def set_external(self):
+        self.setStyleSheet(
+            "background-color: #ccaa00; border-radius: 7px; border: 1px solid #886600;"
+        )
+        self.setToolTip("Running externally")
+
 
 class ServerControlWidget(QWidget):
     sig_start = pyqtSignal(str, str, int, int)  # (executable, interface_cfg, telnet_port, tcl_port)
@@ -129,6 +135,13 @@ class ServerControlWidget(QWidget):
     # ------------------------------------------------------------------
     # Public slots
     # ------------------------------------------------------------------
+
+    def on_openocd_detected(self):
+        """Called when an already-running OpenOCD instance is found at startup."""
+        self._dot.set_external()
+        self._status_label.setText("Running (external)")
+        self._pid_label.setText("")
+        self._btn_connect.setEnabled(True)
 
     def on_server_started(self, pid: int):
         self._dot.set_running()

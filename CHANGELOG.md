@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.028] - 2026-04-02
+### Added
+- **Startup OpenOCD detection** — on launch the app probes the configured telnet port
+  (default 4444); if an already-running OpenOCD instance is found, the status dot turns
+  amber ("Running externally"), the Connect button is enabled automatically, and an
+  informational message is shown in the log panel and status bar
+
+### Fixed
+- **Worker lifecycle crash on repeated reads** — `MemReadWorker` and `FlashInfoWorker`
+  now use `deleteLater` for Qt-safe cleanup; previously, Python's GC could destroy a
+  `QThread` object before Qt finished its internal teardown, causing a crash on the
+  second whole-flash read
+
 ## [0.027] - 2026-04-02
 ### Added
 - **Memory Viewer progress bar** — a progress bar appears below the controls while
