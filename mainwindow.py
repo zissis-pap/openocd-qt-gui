@@ -19,6 +19,7 @@ from widgets.memory_viewer import MemoryViewerWidget
 from widgets.script_console import ScriptConsoleWidget
 from widgets.log_widget import LogWidget
 from widgets.verify_widget import VerifyWidget
+from widgets.content_editor import ContentEditorWidget
 
 
 class MainWindow(QMainWindow):
@@ -119,6 +120,9 @@ class MainWindow(QMainWindow):
         self._verify_widget = VerifyWidget()
         self._tabs.addTab(self._verify_widget, "Verify")
 
+        self._content_editor = ContentEditorWidget()
+        self._tabs.addTab(self._content_editor, "Content Editor")
+
         h_split.addWidget(self._tabs)
         h_split.setStretchFactor(0, 0)
         h_split.setStretchFactor(1, 1)
@@ -186,6 +190,7 @@ class MainWindow(QMainWindow):
         self._mem_viewer.sig_log.connect(self._log_widget.append_line)
         self._script_console.sig_log.connect(self._log_widget.append_line)
         self._verify_widget.sig_log.connect(self._log_widget.append_line)
+        self._content_editor.sig_log.connect(self._log_widget.append_line)
 
     # ------------------------------------------------------------------
     # Slots
@@ -209,6 +214,7 @@ class MainWindow(QMainWindow):
         self._mem_viewer.set_connection("localhost", port)
         self._script_console.set_connection("localhost", port)
         self._verify_widget.set_connection("localhost", port)
+        self._content_editor.set_connection("localhost", port)
         self.statusBar().showMessage("Connected to OpenOCD")
 
     def _on_client_disconnected(self):

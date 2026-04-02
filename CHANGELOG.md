@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.024] - 2026-04-02
+### Added
+- **Content Editor tab** — new tab for read-modify-erase-write of named flash variables;
+  each variable has an address, name, size (bytes), and data (hex); the **Store** button
+  reads all affected flash sectors, patches the variable bytes, erases, and writes back;
+  multiple variables spanning multiple sectors are handled in a single operation
+- **Save/Load variable set** — variable tables can be saved to `.varset`/`.json` files
+  and reloaded across sessions
+
 ## [0.022] - 2026-02-17
 ### Added
 - **Flash-aware byte write in Memory Viewer** — writes to flash addresses
